@@ -48,7 +48,7 @@ class AccessService : AccessibilityService() {
     private var curX = 0f
     private var curY = 0f
     private var releaseAttempts = 0
-    private var releaseWatchdog: Runnable? = null
+    private var activePointerId = -1
 
     private val boxSize: Int
         get() = (prefs.buttonSizeDp * resources.displayMetrics.density).toInt()
@@ -150,6 +150,7 @@ class AccessService : AccessibilityService() {
         v.setOnTouchListener { _, e ->
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    activePointerId = e.getPointerId(0)
                     if (prefs.locked) {
                         startHold()
                     } else {
@@ -164,14 +165,20 @@ class AccessService : AccessibilityService() {
                     bp.y = (startY + (e.rawY - downY).toInt()).coerceIn(0, screenH - size)
                     try { wm.updateViewLayout(v, bp) } catch (_: Exception) {}
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL,
-                MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_OUTSIDE -> {
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     if (prefs.locked) {
-                        // با رها شدن انگشت، حلقه ادامه ژست متوقف و استروک نهایی ارسال می‌شود.
                         releaseHold()
                     } else {
                         prefs.btnX = (bp.x + size / 2f) / screenW
                         prefs.btnY = (bp.y + size / 2f) / screenH
+                    }
+                    activePointerId = -1
+                }
+                MotionEvent.ACTION_POINTER_UP -> {
+                    // فقط بالا رفتن همان انگشتی که دکمه را پایین زده، نگه‌داری را تمام می‌کند.
+                    if (prefs.locked && e.getPointerId(e.actionIndex) == activePointerId) {
+                        releaseHold()
+                        activePointerId = -1
                     }
                 }
             }
@@ -245,7 +252,7 @@ class AccessService : AccessibilityService() {
             }
 
             override fun onCancelled(gestureDescription: GestureDescription?) {
-                // لغو ژست زنجیره‌ای ممکن است لمس را روی صفحه باقی بگذارد.
+                // فقط در مسیر خطا از ژست مستقل برای آزادسازی اضطراری استفاده می‌شود.
                 held = false
                 forceRelease()
             }
@@ -270,7 +277,6 @@ class AccessService : AccessibilityService() {
         if (!keepGoing) path.lineTo(curX + 1f, curY)
 
         finishing = !keepGoing
-        if (finishing) scheduleReleaseWatchdog()
         val duration = if (keepGoing) 200L else 50L
         try {
             val stroke = last.continueStroke(path, 0L, duration, keepGoing)
@@ -283,23 +289,14 @@ class AccessService : AccessibilityService() {
     }
 
     private fun releaseHold() {
+        // زنجیره فعلی را قطع نکن؛ callback بلوک جاری، next() را اجرا می‌کند
+        // و next() همان StrokeDescription را با willContinue=false خاتمه می‌دهد.
         held = false
-        if (running) scheduleReleaseWatchdog()
     }
 
     private fun finishHold() {
-        if (!running || finishing) return
-        held = false
-        forceRelease()
-    }
-
-    private fun scheduleReleaseWatchdog() {
-        releaseWatchdog?.let(handler::removeCallbacks)
-        val watchdog = Runnable {
-            if (running && !held) forceRelease()
-        }
-        releaseWatchdog = watchdog
-        handler.postDelayed(watchdog, 400L)
+        // حتی هنگام بسته‌شدن overlay نیز اجازه بده زنجیره فعلی به استروک نهایی برسد.
+        releaseHold()
     }
 
     // ارسال یک ژست مستقل برای بالا بردن انگشت مجازی در نقطه B.
@@ -338,12 +335,11 @@ class AccessService : AccessibilityService() {
     }
 
     private fun reset() {
-        releaseWatchdog?.let(handler::removeCallbacks)
-        releaseWatchdog = null
         running = false
         held = false
         finishing = false
         releaseAttempts = 0
+        activePointerId = -1
         lastStroke = null
     }
 
