@@ -48,7 +48,7 @@ class AccessService : AccessibilityService() {
     private var curY = 0f
 
     private val boxSize: Int
-        get() = (64 * resources.displayMetrics.density).toInt()
+        get() = (prefs.buttonSizeDp * resources.displayMetrics.density).toInt()
 
     private val overlayFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
@@ -122,15 +122,12 @@ class AccessService : AccessibilityService() {
     // ------------------------------------------------------------
 
     private var buttonParams: WindowManager.LayoutParams? = null
-    private var lockView: View? = null
-    private var lockParams: WindowManager.LayoutParams? = null
 
     private fun placeLock() {
         val bp = buttonParams ?: return
         val lp = lockParams ?: return
         val lv = lockView ?: return
         val size = boxSize
-        val lockSize = size / 2
         lp.x = bp.x + (size - lockSize) / 2
         lp.y = if (bp.y - lockSize - 8 >= 0) bp.y - lockSize - 8 else bp.y + size + 8
         try {
@@ -143,14 +140,10 @@ class AccessService : AccessibilityService() {
         hideButton()
         readScreen()
         val size = boxSize
-        val lockSize = size / 2
 
-        val v = TextView(this)
-        v.text = getString(R.string.hold)
-        v.setTextColor(Color.WHITE)
-        v.textSize = 12f
-        v.gravity = Gravity.CENTER
-        v.background = circleBg(0xCC8B5CF6.toInt())
+        val v = View(this)
+        v.background = circleBg(Color.WHITE)
+        v.alpha = prefs.buttonAlpha.coerceIn(0.2f, 1f)
 
         val x = (prefs.btnX * screenW - size / 2f).toInt().coerceIn(0, screenW - size)
         val y = (prefs.btnY * screenH - size / 2f).toInt().coerceIn(0, screenH - size)
@@ -210,10 +203,6 @@ class AccessService : AccessibilityService() {
             wm.addView(v, bp)
             button = v
             buttonParams = bp
-            wm.addView(lv, lp)
-            lockView = lv
-            lockParams = lp
-            placeLock()
         } catch (e: Exception) {
             hideButton()
         }
@@ -227,15 +216,7 @@ class AccessService : AccessibilityService() {
             } catch (e: Exception) {
             }
         }
-        val lv = lockView
-        if (lv != null) {
-            try {
-                wm.removeView(lv)
-            } catch (e: Exception) {
-            }
-        }
         button = null
-        lockView = null
         buttonParams = null
         lockParams = null
     }
