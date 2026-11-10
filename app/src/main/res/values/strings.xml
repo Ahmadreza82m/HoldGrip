@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">HoldGrip</string>
+    <string name="title">نگه‌داشتن پیوسته</string>
+    <string name="usage">دکمه شناور را نگه دار. انگشت مجازی از نقطه شروع تا نقطه پایان می‌کشد و تا وقتی دکمه را رها نکرده‌ای همان‌جا نگه می‌دارد.</string>
+    <string name="hold">نگه‌دار</string>
+    <string name="status_on">سرویس دسترسی: فعال</string>
+    <string name="status_off">سرویس دسترسی: غیرفعال</string>
+    <string name="enable_accessibility">فعال‌سازی سرویس دسترسی</string>
+    <string name="edit_points">تنظیم نقاط و دکمه</string>
+    <string name="edit_wait">۴ ثانیه وقت داری بازی را باز کنی، بعد صفحه تنظیم باز می‌شود</string>
+    <string name="need_service">ابتدا سرویس دسترسی را فعال کن</string>
+    <string name="swipe_duration">مدت کشیدن (میلی‌ثانیه)</string>
+    <string name="save">ذخیره</string>
+    <string name="cancel">لغو</string>
+    <string name="saved">ذخیره شد</string>
+    <string name="show_button">نمایش دکمه شناور</string>
+    <string name="hide_button">پنهان کردن دکمه شناور</string>
+    <string name="marker_a">شروع</string>
+    <string name="marker_b">پایان</string>
+    <string name="marker_btn">دکمه</string>
+    <string name="editor_hint">دایره‌ها را بکشید و جابه‌جا کنید</string>
+    <string name="accessibility_desc">برای اجرای ژست نگه‌داشتن پیوسته روی سایر برنامه‌ها</string>
+</resources>
