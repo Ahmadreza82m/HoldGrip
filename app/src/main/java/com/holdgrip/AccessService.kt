@@ -294,7 +294,10 @@ class AccessService : AccessibilityService() {
         t.setTextColor(Color.WHITE)
         t.textSize = 12f
         t.gravity = Gravity.CENTER
-        t.background = circleBg(color)
+        val markerBg = circleBg(color)
+        markerBg.setStroke((3 * resources.displayMetrics.density).toInt(), Color.WHITE)
+        t.background = markerBg
+        t.elevation = 10f * resources.displayMetrics.density
         t.layoutParams = FrameLayout.LayoutParams(size, size)
         t.x = fx * screenW - size / 2f
         t.y = fy * screenH - size / 2f
