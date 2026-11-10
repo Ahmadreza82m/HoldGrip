@@ -5,8 +5,6 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
@@ -14,6 +12,7 @@ import android.view.View
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 
@@ -22,6 +21,7 @@ class MainActivity : Activity() {
     private lateinit var prefs: Prefs
     private lateinit var status: TextView
     private lateinit var toggle: TextView
+    private lateinit var lockToggle: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,6 +39,7 @@ class MainActivity : Activity() {
             if (AccessService.instance != null) R.string.status_on else R.string.status_off
         )
         toggle.setText(if (prefs.showButton) R.string.hide_button else R.string.show_button)
+        lockToggle.setText(if (prefs.locked) R.string.unlock_button else R.string.lock_button)
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
@@ -96,11 +97,8 @@ class MainActivity : Activity() {
             if (service == null) {
                 Toast.makeText(this, R.string.need_service, Toast.LENGTH_LONG).show()
             } else {
-                Toast.makeText(this, R.string.edit_wait, Toast.LENGTH_LONG).show()
                 moveTaskToBack(true)
-                Handler(Looper.getMainLooper()).postDelayed({
-                    AccessService.instance?.showEditor()
-                }, 4000)
+                service.showEditor()
             }
         })
 
