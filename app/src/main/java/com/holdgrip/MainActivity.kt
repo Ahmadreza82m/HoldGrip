@@ -5,8 +5,6 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
@@ -14,6 +12,7 @@ import android.view.View
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 
@@ -22,6 +21,7 @@ class MainActivity : Activity() {
     private lateinit var prefs: Prefs
     private lateinit var status: TextView
     private lateinit var toggle: TextView
+    private lateinit var lockToggle: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,6 +39,7 @@ class MainActivity : Activity() {
             if (AccessService.instance != null) R.string.status_on else R.string.status_off
         )
         toggle.setText(if (prefs.showButton) R.string.hide_button else R.string.show_button)
+        lockToggle.setText(if (prefs.locked) R.string.unlock_button else R.string.lock_button)
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
@@ -96,11 +97,8 @@ class MainActivity : Activity() {
             if (service == null) {
                 Toast.makeText(this, R.string.need_service, Toast.LENGTH_LONG).show()
             } else {
-                Toast.makeText(this, R.string.edit_wait, Toast.LENGTH_LONG).show()
                 moveTaskToBack(true)
-                Handler(Looper.getMainLooper()).postDelayed({
-                    AccessService.instance?.showEditor()
-                }, 4000)
+                service.showEditor()
             }
         })
 
@@ -114,6 +112,48 @@ class MainActivity : Activity() {
             refresh()
         }
         col.addView(toggle)
+
+        lockToggle = button(R.string.unlock_button, 0xFF374151.toInt()) {
+            prefs.locked = !prefs.locked
+            refresh()
+        }
+        col.addView(lockToggle)
+
+        val sizeLabel = TextView(this)
+        sizeLabel.setText(R.string.button_size)
+        sizeLabel.textSize = 14f
+        sizeLabel.setPadding(0, dp(20), 0, dp(4))
+        col.addView(sizeLabel)
+        val sizeSeek = SeekBar(this)
+        sizeSeek.max = 56
+        sizeSeek.progress = (prefs.buttonSizeDp - 32).coerceIn(0, 56)
+        sizeSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                prefs.buttonSizeDp = progress + 32
+                AccessService.instance?.refreshButtonAppearance()
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+        col.addView(sizeSeek)
+
+        val alphaLabel = TextView(this)
+        alphaLabel.setText(R.string.button_opacity)
+        alphaLabel.textSize = 14f
+        alphaLabel.setPadding(0, dp(12), 0, dp(4))
+        col.addView(alphaLabel)
+        val alphaSeek = SeekBar(this)
+        alphaSeek.max = 80
+        alphaSeek.progress = ((prefs.buttonAlpha - 0.2f) * 100f).toInt().coerceIn(0, 80)
+        alphaSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                prefs.buttonAlpha = (0.2f + progress / 100f).coerceIn(0.2f, 1f)
+                AccessService.instance?.refreshButtonAppearance()
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+        col.addView(alphaSeek)
 
         val label = TextView(this)
         label.setText(R.string.swipe_duration)

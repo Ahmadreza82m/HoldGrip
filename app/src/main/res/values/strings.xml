@@ -4,11 +4,14 @@
     <string name="title">نگه‌داشتن پیوسته</string>
     <string name="usage">دکمه شناور را نگه دار. انگشت مجازی از نقطه شروع تا نقطه پایان می‌کشد و تا وقتی دکمه را رها نکرده‌ای همان‌جا نگه می‌دارد.</string>
     <string name="hold">نگه‌دار</string>
+    <string name="lock_button">قفل کردن دکمه شناور</string>
+    <string name="unlock_button">آزاد کردن دکمه شناور</string>
+    <string name="button_size">اندازه دکمه شناور</string>
+    <string name="button_opacity">شفافیت دکمه شناور</string>
     <string name="status_on">سرویس دسترسی: فعال</string>
     <string name="status_off">سرویس دسترسی: غیرفعال</string>
     <string name="enable_accessibility">فعال‌سازی سرویس دسترسی</string>
     <string name="edit_points">تنظیم نقاط و دکمه</string>
-    <string name="edit_wait">۴ ثانیه وقت داری بازی را باز کنی، بعد صفحه تنظیم باز می‌شود</string>
     <string name="need_service">ابتدا سرویس دسترسی را فعال کن</string>
     <string name="swipe_duration">مدت کشیدن (میلی‌ثانیه)</string>
     <string name="save">ذخیره</string>

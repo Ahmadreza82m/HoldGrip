@@ -48,7 +48,7 @@ class AccessService : AccessibilityService() {
     private var curY = 0f
 
     private val boxSize: Int
-        get() = (64 * resources.displayMetrics.density).toInt()
+        get() = (prefs.buttonSizeDp * resources.displayMetrics.density).toInt()
 
     private val overlayFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
@@ -122,70 +122,45 @@ class AccessService : AccessibilityService() {
     // ------------------------------------------------------------
 
     private var buttonParams: WindowManager.LayoutParams? = null
-    private var lockView: View? = null
-    private var lockParams: WindowManager.LayoutParams? = null
-
-    private fun placeLock() {
-        val bp = buttonParams ?: return
-        val lp = lockParams ?: return
-        val lv = lockView ?: return
-        val size = boxSize
-        val lockSize = size / 2
-        lp.x = bp.x + (size - lockSize) / 2
-        lp.y = if (bp.y - lockSize - 8 >= 0) bp.y - lockSize - 8 else bp.y + size + 8
-        try {
-            wm.updateViewLayout(lv, lp)
-        } catch (e: Exception) {
-        }
-    }
 
     fun showButton() {
         hideButton()
         readScreen()
         val size = boxSize
-        val lockSize = size / 2
-
-        val v = TextView(this)
-        v.text = getString(R.string.hold)
-        v.setTextColor(Color.WHITE)
-        v.textSize = 12f
-        v.gravity = Gravity.CENTER
-        v.background = circleBg(0xCC8B5CF6.toInt())
+        val v = View(this)
+        v.background = circleBg(Color.WHITE)
+        v.alpha = prefs.buttonAlpha.coerceIn(0.2f, 1f)
 
         val x = (prefs.btnX * screenW - size / 2f).toInt().coerceIn(0, screenW - size)
         val y = (prefs.btnY * screenH - size / 2f).toInt().coerceIn(0, screenH - size)
         val bp = overlayParams(size, size, x, y)
-
         var downX = 0f
         var downY = 0f
         var startX = 0
         var startY = 0
+
         v.setOnTouchListener { _, e ->
-            if (prefs.locked) {
-                // حالت قفل: نگه داشتن = ژست
-                when (e.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> startHold()
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> held = false
-                }
-            } else {
-                // حالت باز: دکمه با انگشت جابه‌جا می‌شود و ژستی اجرا نمی‌شود
-                when (e.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> {
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    if (prefs.locked) {
+                        startHold()
+                    } else {
                         downX = e.rawX
                         downY = e.rawY
                         startX = bp.x
                         startY = bp.y
                     }
-                    MotionEvent.ACTION_MOVE -> {
-                        bp.x = (startX + (e.rawX - downX).toInt()).coerceIn(0, screenW - size)
-                        bp.y = (startY + (e.rawY - downY).toInt()).coerceIn(0, screenH - size)
-                        try {
-                            wm.updateViewLayout(v, bp)
-                        } catch (ex: Exception) {
-                        }
-                        placeLock()
-                    }
-                    MotionEvent.ACTION_UP -> {
+                }
+                MotionEvent.ACTION_MOVE -> if (!prefs.locked) {
+                    bp.x = (startX + (e.rawX - downX).toInt()).coerceIn(0, screenW - size)
+                    bp.y = (startY + (e.rawY - downY).toInt()).coerceIn(0, screenH - size)
+                    try { wm.updateViewLayout(v, bp) } catch (_: Exception) {}
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (prefs.locked) {
+                        // با رها شدن انگشت، حلقه ادامه ژست متوقف و استروک نهایی ارسال می‌شود.
+                        held = false
+                    } else {
                         prefs.btnX = (bp.x + size / 2f) / screenW
                         prefs.btnY = (bp.y + size / 2f) / screenH
                     }
@@ -194,50 +169,32 @@ class AccessService : AccessibilityService() {
             true
         }
 
-        // دکمه کوچک قفل بالای دکمه اصلی
-        val lv = TextView(this)
-        lv.textSize = 16f
-        lv.gravity = Gravity.CENTER
-        lv.background = circleBg(0xCC374151.toInt())
-        lv.text = if (prefs.locked) "\uD83D\uDD12" else "\uD83D\uDD13"
-        lv.setOnClickListener {
-            prefs.locked = !prefs.locked
-            lv.text = if (prefs.locked) "\uD83D\uDD12" else "\uD83D\uDD13"
-        }
-        val lp = overlayParams(lockSize, lockSize, 0, 0)
-
         try {
             wm.addView(v, bp)
             button = v
             buttonParams = bp
-            wm.addView(lv, lp)
-            lockView = lv
-            lockParams = lp
-            placeLock()
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             hideButton()
         }
+    }
+
+    fun refreshButtonAppearance() {
+        val v = button ?: return
+        val p = buttonParams ?: return
+        val size = boxSize
+        p.width = size
+        p.height = size
+        v.alpha = prefs.buttonAlpha.coerceIn(0.2f, 1f)
+        try { wm.updateViewLayout(v, p) } catch (_: Exception) {}
     }
 
     fun hideButton() {
         val v = button
         if (v != null) {
-            try {
-                wm.removeView(v)
-            } catch (e: Exception) {
-            }
-        }
-        val lv = lockView
-        if (lv != null) {
-            try {
-                wm.removeView(lv)
-            } catch (e: Exception) {
-            }
+            try { wm.removeView(v) } catch (_: Exception) {}
         }
         button = null
-        lockView = null
         buttonParams = null
-        lockParams = null
     }
 
     // ------------------------------------------------------------
@@ -337,7 +294,10 @@ class AccessService : AccessibilityService() {
         t.setTextColor(Color.WHITE)
         t.textSize = 12f
         t.gravity = Gravity.CENTER
-        t.background = circleBg(color)
+        val markerBg = circleBg(color)
+        markerBg.setStroke((3 * resources.displayMetrics.density).toInt(), Color.WHITE)
+        t.background = markerBg
+        t.elevation = 10f * resources.displayMetrics.density
         t.layoutParams = FrameLayout.LayoutParams(size, size)
         t.x = fx * screenW - size / 2f
         t.y = fy * screenH - size / 2f

@@ -49,4 +49,12 @@ class Prefs(context: Context) {
     var locked: Boolean
         get() = sp.getBoolean("locked", true)
         set(v) { sp.edit().putBoolean("locked", v).apply() }
+
+    var buttonSizeDp: Int
+        get() = sp.getInt("buttonSizeDp", 56).coerceIn(32, 88)
+        set(v) { sp.edit().putInt("buttonSizeDp", v.coerceIn(32, 88)).apply() }
+
+    var buttonAlpha: Float
+        get() = sp.getFloat("buttonAlpha", 1f).coerceIn(0.2f, 1f)
+        set(v) { sp.edit().putFloat("buttonAlpha", v.coerceIn(0.2f, 1f)).apply() }
 }
