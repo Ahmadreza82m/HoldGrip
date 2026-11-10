@@ -288,7 +288,7 @@ class AccessService : AccessibilityService() {
     }
 
     private fun finishHold() {
-        if (!running) return
+        if (!running || finishing) return
         held = false
         forceRelease()
     }
