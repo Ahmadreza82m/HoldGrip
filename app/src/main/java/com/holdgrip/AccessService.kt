@@ -47,6 +47,8 @@ class AccessService : AccessibilityService() {
     private var lastStroke: StrokeDescription? = null
     private var curX = 0f
     private var curY = 0f
+    private var releaseAttempts = 0
+    private var releaseWatchdog: Runnable? = null
 
     private val boxSize: Int
         get() = (prefs.buttonSizeDp * resources.displayMetrics.density).toInt()
@@ -69,6 +71,7 @@ class AccessService : AccessibilityService() {
     override fun onInterrupt() {}
 
     override fun onUnbind(intent: Intent?): Boolean {
+        finishHold()
         hideButton()
         hideEditor()
         instance = null
@@ -161,10 +164,11 @@ class AccessService : AccessibilityService() {
                     bp.y = (startY + (e.rawY - downY).toInt()).coerceIn(0, screenH - size)
                     try { wm.updateViewLayout(v, bp) } catch (_: Exception) {}
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL,
+                MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_OUTSIDE -> {
                     if (prefs.locked) {
                         // با رها شدن انگشت، حلقه ادامه ژست متوقف و استروک نهایی ارسال می‌شود.
-                        held = false
+                        releaseHold()
                     } else {
                         prefs.btnX = (bp.x + size / 2f) / screenW
                         prefs.btnY = (bp.y + size / 2f) / screenH
@@ -194,6 +198,7 @@ class AccessService : AccessibilityService() {
     }
 
     fun hideButton() {
+        finishHold()
         val v = button
         if (v != null) {
             try { wm.removeView(v) } catch (_: Exception) {}
@@ -240,10 +245,15 @@ class AccessService : AccessibilityService() {
             }
 
             override fun onCancelled(gestureDescription: GestureDescription?) {
-                reset()
+                // لغو ژست زنجیره‌ای ممکن است لمس را روی صفحه باقی بگذارد.
+                held = false
+                forceRelease()
             }
         }, handler)
-        if (!ok) reset()
+        if (!ok) {
+            held = false
+            forceRelease()
+        }
     }
 
     private fun next() {
@@ -252,22 +262,88 @@ class AccessService : AccessibilityService() {
             reset()
             return
         }
-        // نگه‌داری دقیقاً روی نقطه B، بدون هیچ حرکتی (فقط یک نقطه)
+        // در زمان نگه‌داری، زنجیره بدون وقفه روی B ادامه پیدا می‌کند.
+        // استروک پایانی یک حرکت یک‌پیکسلی ۵۰ میلی‌ثانیه‌ای است تا رهاسازی ثبت شود.
+        val keepGoing = held
         val path = Path()
         path.moveTo(curX, curY)
+        if (!keepGoing) path.lineTo(curX + 1f, curY)
 
-        val keepGoing = held
         finishing = !keepGoing
-        val duration = if (keepGoing) 200L else 10L
-        val stroke = last.continueStroke(path, 0L, duration, keepGoing)
-        lastStroke = stroke
-        send(stroke)
+        if (finishing) scheduleReleaseWatchdog()
+        val duration = if (keepGoing) 200L else 50L
+        try {
+            val stroke = last.continueStroke(path, 0L, duration, keepGoing)
+            lastStroke = stroke
+            send(stroke)
+        } catch (_: Exception) {
+            held = false
+            forceRelease()
+        }
+    }
+
+    private fun releaseHold() {
+        held = false
+        if (running) scheduleReleaseWatchdog()
+    }
+
+    private fun finishHold() {
+        if (!running) return
+        held = false
+        forceRelease()
+    }
+
+    private fun scheduleReleaseWatchdog() {
+        releaseWatchdog?.let(handler::removeCallbacks)
+        val watchdog = Runnable {
+            if (running && !held) forceRelease()
+        }
+        releaseWatchdog = watchdog
+        handler.postDelayed(watchdog, 400L)
+    }
+
+    // ارسال یک ژست مستقل برای بالا بردن انگشت مجازی در نقطه B.
+    // در صورت رد یا لغو شدن، چند بار با فاصله کوتاه تلاش می‌کنیم.
+    private fun forceRelease() {
+        if (!running) return
+        held = false
+        finishing = true
+        if (releaseAttempts >= 4) {
+            reset()
+            return
+        }
+
+        releaseAttempts++
+        val path = Path().apply {
+            moveTo(curX, curY)
+            lineTo(curX + 1f, curY)
+        }
+        val gesture = GestureDescription.Builder()
+            .addStroke(StrokeDescription(path, 0L, 50L, false))
+            .build()
+
+        val accepted = dispatchGesture(gesture, object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                reset()
+            }
+
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                if (running) handler.postDelayed({ forceRelease() }, 60L)
+            }
+        }, handler)
+
+        if (!accepted && running) {
+            handler.postDelayed({ forceRelease() }, 60L)
+        }
     }
 
     private fun reset() {
+        releaseWatchdog?.let(handler::removeCallbacks)
+        releaseWatchdog = null
         running = false
         held = false
         finishing = false
+        releaseAttempts = 0
         lastStroke = null
     }
 
@@ -352,6 +428,7 @@ class AccessService : AccessibilityService() {
     }
 
     fun showEditor() {
+        finishHold()
         hideEditor()
         hideButton()
         readScreen()
@@ -427,6 +504,7 @@ class AccessService : AccessibilityService() {
         }
     }
     private fun hideEditor() {
+        finishHold()
         val v = editor ?: return
         try {
             wm.removeView(v)
