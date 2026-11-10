@@ -118,6 +118,28 @@ class AccessService : AccessibilityService() {
         return d
     }
 
+    // رنگ دکمه فقط برای تشخیص مرحله‌ای است که لمس مجازی در آن قرار دارد:
+    // آبی=نگه‌داشته‌شده، نارنجی=درخواست رهاسازی، سبز=رهاسازی کامل، قرمز=لغو/خطا.
+    private fun setButtonDiagnosticState(state: String) {
+        val v = button ?: return
+        val density = resources.displayMetrics.density
+        val bg = when (state) {
+            "pressed" -> circleBg(0xFF3B82F6.toInt())
+            "release_requested" -> circleBg(0xFFF59E0B.toInt())
+            "released" -> circleBg(0xFF22C55E.toInt())
+            "error" -> circleBg(0xFFEF4444.toInt())
+            else -> GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(0xFFF1F3F5.toInt(), 0xFF9CA3AF.toInt(), 0xFFDDE1E6.toInt())
+            ).apply {
+                shape = GradientDrawable.OVAL
+                setStroke((2 * density).toInt(), 0xFF626B76.toInt())
+            }
+        }
+        if (state != "idle") bg.setStroke((2 * density).toInt(), 0xFF626B76.toInt())
+        runOnUiThread { v.background = bg }
+    }
+
     // ------------------------------------------------------------
     // دکمه شناور
     // ------------------------------------------------------------
@@ -234,6 +256,7 @@ class AccessService : AccessibilityService() {
             val generation = ++gestureGeneration
             held = true
             running = true
+            setButtonDiagnosticState("pressed")
 
             val ax = prefs.ax * screenW
             val ay = prefs.ay * screenH
@@ -313,25 +336,35 @@ class AccessService : AccessibilityService() {
                                     override fun onCompleted(gestureDescription: GestureDescription?) {
                                         synchronized(gestureLock) {
                                             android.util.Log.d("HoldGrip", "Final UP completed: generation=$generation")
-                                            if (generation == gestureGeneration) resetLocked()
+                                            if (generation == gestureGeneration) {
+                                                setButtonDiagnosticState("released")
+                                                resetLocked()
+                                            }
                                         }
                                     }
 
                                     override fun onCancelled(gestureDescription: GestureDescription?) {
                                         synchronized(gestureLock) {
                                             android.util.Log.e("HoldGrip", "Final UP cancelled: generation=$generation")
-                                            if (generation == gestureGeneration) resetLocked()
+                                            if (generation == gestureGeneration) {
+                                                setButtonDiagnosticState("error")
+                                                resetLocked()
+                                            }
                                         }
                                     }
                                 },
                                 null
                             )
                             if (accepted) {
+                                android.util.Log.d("HoldGrip", "Final release dispatch accepted: generation=$generation")
                             } else {
+                                setButtonDiagnosticState("error")
+                                android.util.Log.e("HoldGrip", "Final release dispatch rejected: generation=$generation")
                                 resetLocked()
                             }
                         }
                     } catch (error: Exception) {
+                        setButtonDiagnosticState("error")
                         android.util.Log.e(
                             "HoldGrip",
                             "Could not finish continuous stroke; Android rejected continuation",
@@ -345,7 +378,10 @@ class AccessService : AccessibilityService() {
             override fun onCancelled(gestureDescription: GestureDescription?) {
                 synchronized(gestureLock) {
                     android.util.Log.e("HoldGrip", "Stroke cancelled: generation=$generation current=$gestureGeneration held=$held running=$running")
-                    if (generation == gestureGeneration) resetLocked()
+                    if (generation == gestureGeneration) {
+                        setButtonDiagnosticState("error")
+                        resetLocked()
+                    }
                 }
             }
         }
@@ -354,6 +390,7 @@ class AccessService : AccessibilityService() {
         android.util.Log.d("HoldGrip", "dispatchGesture: accepted=$accepted generation=$generation willContinue=${stroke.willContinue()}")
         if (!accepted && generation == gestureGeneration) {
             android.util.Log.e("HoldGrip", "dispatchGesture rejected")
+            setButtonDiagnosticState("error")
             resetLocked()
         }
     }
@@ -373,6 +410,7 @@ class AccessService : AccessibilityService() {
         synchronized(gestureLock) {
             if (!held) return
             held = false
+            setButtonDiagnosticState("release_requested")
             android.util.Log.d("HoldGrip", "releaseHold: received generation=$gestureGeneration running=$running lastStrokeWillContinue=${lastStroke?.willContinue()}")
         }
     }
