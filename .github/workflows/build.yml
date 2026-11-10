@@ -19,6 +19,15 @@ jobs:
         with:
           gradle-version: 8.7
 
+      # Keep the same debug signing key between GitHub runner builds.
+      # This lets users install future APKs as updates without uninstalling
+      # the app or losing its local settings/accessibility setup.
+      - name: Restore stable debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: holdgrip-debug-keystore-v1
+
       - name: Build debug APK
         run: gradle assembleDebug
 
