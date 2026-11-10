@@ -176,7 +176,6 @@ class AccessService : AccessibilityService() {
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     android.util.Log.d("HoldGrip", "Floating button released: action=${e.actionMasked}")
-                    showReleaseDebug("۱) رها شدن دکمه شناور دریافت شد")
                     releaseHold()
                     if (dragging) {
                         prefs.btnX = (bp.x + size / 2f) / screenW
@@ -270,22 +269,18 @@ class AccessService : AccessibilityService() {
                     val previous = lastStroke ?: return
 
                     val shouldContinue = held
-                    if (!shouldContinue) {
-                        showReleaseDebug("۲) برنامه فرمان پایان لمس را آماده کرد")
-                    }
-                    // A zero-length path is an explicit stationary touch in Android's API.
-                    // Keep the continued pointer exactly at B instead of nudging it by a
-                    // sub-pixel amount; the final willContinue=false segment then emits UP
-                    // at the same coordinate without creating a second touch.
-                    val continuationPath = Path().apply {
-                        moveTo(curX, curY)
-                    }
+                    // Android requires a continuation Path with actual geometry.
+                    // moveTo(B) alone is an empty/zero-length path on Android versions
+                    // that validate the path, and can throw before the final UP is sent.
+                    // Make a tiny out-and-back sub-pixel movement: it starts and ends at B,
+                    // keeps the same pointer/stroke, and gives the continuation non-zero length.
+                    val continuationPath = makeStationaryContinuationPath(curX, curY)
 
                     try {
                         val continuation = previous.continueStroke(
                             continuationPath,
                             0L,
-                            16L,
+                            40L,
                             shouldContinue
                         )
 
@@ -307,14 +302,12 @@ class AccessService : AccessibilityService() {
                                 nextGesture,
                                 object : GestureResultCallback() {
                                     override fun onCompleted(gestureDescription: GestureDescription?) {
-                                        showReleaseDebug("۴) اندروید پایان لمس مجازی را تأیید کرد")
                                         synchronized(gestureLock) {
                                             if (generation == gestureGeneration) resetLocked()
                                         }
                                     }
 
                                     override fun onCancelled(gestureDescription: GestureDescription?) {
-                                        showReleaseDebug("خطا: اندروید ژست پایان را لغو کرد")
                                         synchronized(gestureLock) {
                                             if (generation == gestureGeneration) resetLocked()
                                         }
@@ -323,9 +316,7 @@ class AccessService : AccessibilityService() {
                                 null
                             )
                             if (accepted) {
-                                showReleaseDebug("۳) درخواست رهاسازی به اندروید ارسال شد")
                             } else {
-                                showReleaseDebug("خطا: اندروید درخواست رهاسازی را نپذیرفت")
                                 resetLocked()
                             }
                         }
@@ -354,10 +345,14 @@ class AccessService : AccessibilityService() {
         }
     }
 
-    // پیام‌های موقت برای تشخیص اینکه رهاسازی در کدام مرحله متوقف می‌شود.
-    private fun showReleaseDebug(message: String) {
-        android.os.Handler(mainLooper).post {
-            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    // A continuation must contain a non-empty path. This tiny out-and-back
+    // path keeps the same virtual finger at B while satisfying Path validation.
+    private fun makeStationaryContinuationPath(x: Float, y: Float): Path {
+        val dx = if (x + 0.5f < screenW.toFloat()) 0.5f else -0.5f
+        return Path().apply {
+            moveTo(x, y)
+            lineTo(x + dx, y)
+            lineTo(x, y)
         }
     }
 
@@ -365,8 +360,9 @@ class AccessService : AccessibilityService() {
     // Stroke فعال را null نمی‌کنیم؛ برای خاتمه معتبر باید callback آن برسد.
     private fun releaseHold() {
         synchronized(gestureLock) {
+            if (!held) return
             held = false
-            android.util.Log.d("HoldGrip", "releaseHold: held=false; waiting for current stroke boundary")
+            android.util.Log.d("HoldGrip", "releaseHold: received; final continuation will send UP at the next stroke boundary")
         }
     }
 
