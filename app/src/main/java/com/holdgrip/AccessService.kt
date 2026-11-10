@@ -12,8 +12,6 @@ import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.MotionEvent
@@ -33,7 +31,6 @@ class AccessService : AccessibilityService() {
 
     private lateinit var prefs: Prefs
     private lateinit var wm: WindowManager
-    private val handler = Handler(Looper.getMainLooper())
 
     private var button: View? = null
     private var editor: View? = null
@@ -43,12 +40,10 @@ class AccessService : AccessibilityService() {
     // وضعیت ژست
     private var held = false
     private var running = false
-    private var finishing = false
     private var lastStroke: StrokeDescription? = null
     private var curX = 0f
     private var curY = 0f
     private var holdOffset = false
-    private var releaseAttempts = 0
     private var activePointerId = -1
 
     private val boxSize: Int
@@ -148,7 +143,7 @@ class AccessService : AccessibilityService() {
         var startX = 0
         var startY = 0
         var dragging = false
-        val touchSlop = 10f * resources.displayMetrics.density
+        val touchSlop = 10f
 
         v.setOnTouchListener { _, e ->
             when (e.actionMasked) {
@@ -233,8 +228,6 @@ class AccessService : AccessibilityService() {
         readScreen()
         held = true
         running = true
-        finishing = false
-        releaseAttempts = 0
 
         val ax = prefs.ax * screenW
         val ay = prefs.ay * screenH
@@ -278,7 +271,6 @@ class AccessService : AccessibilityService() {
                     curX = nextX
                     holdOffset = !holdOffset
                 }
-                finishing = !shouldContinue
 
                 val nextGesture = GestureDescription.Builder()
                     .addStroke(continuation)
@@ -315,8 +307,6 @@ class AccessService : AccessibilityService() {
     private fun reset() {
         running = false
         held = false
-        finishing = false
-        releaseAttempts = 0
         activePointerId = -1
         lastStroke = null
         holdOffset = false
