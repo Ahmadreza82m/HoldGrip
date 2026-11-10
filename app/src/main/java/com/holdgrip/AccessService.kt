@@ -47,6 +47,7 @@ class AccessService : AccessibilityService() {
     private var lastStroke: StrokeDescription? = null
     private var curX = 0f
     private var curY = 0f
+    private var holdOffset = false
     private var releaseAttempts = 0
     private var activePointerId = -1
 
@@ -241,6 +242,7 @@ class AccessService : AccessibilityService() {
         val by = prefs.by * screenH
         curX = bx
         curY = by
+        holdOffset = false
 
         val path = Path().apply {
             moveTo(ax, ay)
@@ -261,9 +263,10 @@ class AccessService : AccessibilityService() {
                 return
             }
             val shouldContinue = held
+            val nextX = if (holdOffset) curX - 0.01f else curX + 0.01f
             val continuationPath = Path().apply {
                 moveTo(curX, curY)
-                lineTo(curX + 0.01f, curY)
+                lineTo(nextX, curY)
             }
 
             try {
@@ -271,6 +274,10 @@ class AccessService : AccessibilityService() {
                     continuationPath, 0L, if (shouldContinue) 50L else 20L, shouldContinue
                 )
                 lastStroke = if (shouldContinue) continuation else null
+                if (shouldContinue) {
+                    curX = nextX
+                    holdOffset = !holdOffset
+                }
                 finishing = !shouldContinue
 
                 val nextGesture = GestureDescription.Builder()
@@ -312,6 +319,7 @@ class AccessService : AccessibilityService() {
         releaseAttempts = 0
         activePointerId = -1
         lastStroke = null
+        holdOffset = false
     }
 
     // ------------------------------------------------------------
