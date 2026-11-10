@@ -155,6 +155,7 @@ class AccessService : AccessibilityService() {
                     startX = bp.x
                     startY = bp.y
                     dragging = false
+                    android.util.Log.d("HoldGrip", "ACTION_DOWN pointerId=$activePointerId locked=${prefs.locked}")
                     startHold()
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -265,10 +266,18 @@ class AccessService : AccessibilityService() {
         val callback = object : GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription?) {
                 synchronized(gestureLock) {
-                    if (generation != gestureGeneration || !running) return
-                    val previous = lastStroke ?: return
+                    if (generation != gestureGeneration || !running) {
+                        android.util.Log.w("HoldGrip", "onCompleted ignored: stale generation=$generation current=$gestureGeneration running=$running")
+                        return
+                    }
+                    val previous = lastStroke ?: run {
+                        android.util.Log.e("HoldGrip", "onCompleted: lastStroke is null; held=$held")
+                        resetLocked()
+                        return
+                    }
 
                     val shouldContinue = held
+                    android.util.Log.d("HoldGrip", "onCompleted: generation=$generation held=$held previousWillContinue=${previous.willContinue()} -> continue=$shouldContinue")
                     // Android requires a continuation Path with actual geometry.
                     // moveTo(B) alone is an empty/zero-length path on Android versions
                     // that validate the path, and can throw before the final UP is sent.
@@ -303,12 +312,14 @@ class AccessService : AccessibilityService() {
                                 object : GestureResultCallback() {
                                     override fun onCompleted(gestureDescription: GestureDescription?) {
                                         synchronized(gestureLock) {
+                                            android.util.Log.d("HoldGrip", "Final UP completed: generation=$generation")
                                             if (generation == gestureGeneration) resetLocked()
                                         }
                                     }
 
                                     override fun onCancelled(gestureDescription: GestureDescription?) {
                                         synchronized(gestureLock) {
+                                            android.util.Log.e("HoldGrip", "Final UP cancelled: generation=$generation")
                                             if (generation == gestureGeneration) resetLocked()
                                         }
                                     }
@@ -333,26 +344,26 @@ class AccessService : AccessibilityService() {
 
             override fun onCancelled(gestureDescription: GestureDescription?) {
                 synchronized(gestureLock) {
+                    android.util.Log.e("HoldGrip", "Stroke cancelled: generation=$generation current=$gestureGeneration held=$held running=$running")
                     if (generation == gestureGeneration) resetLocked()
                 }
             }
         }
 
         val accepted = dispatchGesture(gesture, callback, null)
+        android.util.Log.d("HoldGrip", "dispatchGesture: accepted=$accepted generation=$generation willContinue=${stroke.willContinue()}")
         if (!accepted && generation == gestureGeneration) {
             android.util.Log.e("HoldGrip", "dispatchGesture rejected")
             resetLocked()
         }
     }
 
-    // A continuation must contain a non-empty path. This tiny out-and-back
-    // path keeps the same virtual finger at B while satisfying Path validation.
+    // Android explicitly supports a zero-length Path (a single moveTo) as
+    // a stationary touch. This keeps the same virtual pointer exactly at B,
+    // without the artificial sub-pixel out-and-back movement.
     private fun makeStationaryContinuationPath(x: Float, y: Float): Path {
-        val dx = if (x + 0.5f < screenW.toFloat()) 0.5f else -0.5f
         return Path().apply {
             moveTo(x, y)
-            lineTo(x + dx, y)
-            lineTo(x, y)
         }
     }
 
@@ -362,7 +373,7 @@ class AccessService : AccessibilityService() {
         synchronized(gestureLock) {
             if (!held) return
             held = false
-            android.util.Log.d("HoldGrip", "releaseHold: received; final continuation will send UP at the next stroke boundary")
+            android.util.Log.d("HoldGrip", "releaseHold: received generation=$gestureGeneration running=$running lastStrokeWillContinue=${lastStroke?.willContinue()}")
         }
     }
 
