@@ -176,6 +176,7 @@ class AccessService : AccessibilityService() {
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     android.util.Log.d("HoldGrip", "Floating button released: action=${e.actionMasked}")
+                    showReleaseDebug("۱) رها شدن دکمه شناور دریافت شد")
                     releaseHold()
                     if (dragging) {
                         prefs.btnX = (bp.x + size / 2f) / screenW
@@ -269,6 +270,9 @@ class AccessService : AccessibilityService() {
                     val previous = lastStroke ?: return
 
                     val shouldContinue = held
+                    if (!shouldContinue) {
+                        showReleaseDebug("۲) برنامه فرمان پایان لمس را آماده کرد")
+                    }
                     // A zero-length path is an explicit stationary touch in Android's API.
                     // Keep the continued pointer exactly at B instead of nudging it by a
                     // sub-pixel amount; the final willContinue=false segment then emits UP
@@ -303,12 +307,14 @@ class AccessService : AccessibilityService() {
                                 nextGesture,
                                 object : GestureResultCallback() {
                                     override fun onCompleted(gestureDescription: GestureDescription?) {
+                                        showReleaseDebug("۴) اندروید پایان لمس مجازی را تأیید کرد")
                                         synchronized(gestureLock) {
                                             if (generation == gestureGeneration) resetLocked()
                                         }
                                     }
 
                                     override fun onCancelled(gestureDescription: GestureDescription?) {
+                                        showReleaseDebug("خطا: اندروید ژست پایان را لغو کرد")
                                         synchronized(gestureLock) {
                                             if (generation == gestureGeneration) resetLocked()
                                         }
@@ -316,7 +322,12 @@ class AccessService : AccessibilityService() {
                                 },
                                 null
                             )
-                            if (!accepted) resetLocked()
+                            if (accepted) {
+                                showReleaseDebug("۳) درخواست رهاسازی به اندروید ارسال شد")
+                            } else {
+                                showReleaseDebug("خطا: اندروید درخواست رهاسازی را نپذیرفت")
+                                resetLocked()
+                            }
                         }
                     } catch (error: Exception) {
                         android.util.Log.e(
@@ -340,6 +351,13 @@ class AccessService : AccessibilityService() {
         if (!accepted && generation == gestureGeneration) {
             android.util.Log.e("HoldGrip", "dispatchGesture rejected")
             resetLocked()
+        }
+    }
+
+    // پیام‌های موقت برای تشخیص اینکه رهاسازی در کدام مرحله متوقف می‌شود.
+    private fun showReleaseDebug(message: String) {
+        android.os.Handler(mainLooper).post {
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
         }
     }
 
