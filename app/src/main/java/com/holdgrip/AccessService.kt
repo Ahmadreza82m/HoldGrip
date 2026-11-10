@@ -137,7 +137,7 @@ class AccessService : AccessibilityService() {
             }
         }
         if (state != "idle") bg.setStroke((2 * density).toInt(), 0xFF626B76.toInt())
-        runOnUiThread { v.background = bg }
+        v.post { v.background = bg }
     }
 
     // ------------------------------------------------------------
