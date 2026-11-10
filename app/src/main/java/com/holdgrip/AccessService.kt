@@ -23,6 +23,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 
 class AccessService : AccessibilityService() {
 
@@ -128,7 +129,11 @@ class AccessService : AccessibilityService() {
         readScreen()
         val size = boxSize
         val v = View(this)
-        v.background = circleBg(Color.WHITE)
+        val silver = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFFF1F3F5.toInt(), 0xFF9CA3AF.toInt(), 0xFFDDE1E6.toInt()))
+        silver.shape = GradientDrawable.OVAL
+        silver.setStroke((2 * resources.displayMetrics.density).toInt(), 0xFF626B76.toInt())
+        v.background = silver
+        v.elevation = 8f * resources.displayMetrics.density
         v.alpha = prefs.buttonAlpha.coerceIn(0.2f, 1f)
 
         val x = (prefs.btnX * screenW - size / 2f).toInt().coerceIn(0, screenW - size)
