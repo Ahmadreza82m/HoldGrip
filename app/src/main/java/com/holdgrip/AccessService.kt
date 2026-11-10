@@ -37,9 +37,11 @@ class AccessService : AccessibilityService() {
     private var screenW = 0
     private var screenH = 0
 
-    // وضعیت ژست
-    private var held = false
+    // وضعیت ژست؛ تمام تغییرات state و callbackها با یک قفل هماهنگ می‌شوند.
+    private val gestureLock = Any()
+    @Volatile private var held = false
     private var running = false
+    private var gestureGeneration = 0L
     private var lastStroke: StrokeDescription? = null
     private var curX = 0f
     private var curY = 0f
@@ -221,90 +223,152 @@ class AccessService : AccessibilityService() {
     }
 
     // ------------------------------------------------------------
-    // ژست پیوسته: A -> B و ادامه همان stroke تا رهاسازی
+    // ژست پیوسته: A -> B و نگه‌داری روی B
+    //
+    // نکته API اندروید: continueStroke فقط بعد از onCompleted بخش قبلی
+    // معتبر است. برای همین ACTION_UP نباید منتظر callback بماند یا روی
+    // StrokeDescription در حال اجرا continueStroke صدا بزند.
+    // stopHold نسل جاری را باطل می‌کند و یک dispatch مستقل می‌فرستد؛
+    // dispatchGesture جدید، ژست قبلیِ در حال اجرا را لغو می‌کند و لمس
+    // مستقل کوتاه در B را با willContinue=false تمام می‌کند.
 
     private fun startHold() {
-        if (running) return
-        readScreen()
-        held = true
-        running = true
+        synchronized(gestureLock) {
+            if (running) return
+            readScreen()
 
-        val ax = prefs.ax * screenW
-        val ay = prefs.ay * screenH
-        val bx = prefs.bx * screenW
-        val by = prefs.by * screenH
-        curX = bx
-        curY = by
+            val generation = ++gestureGeneration
+            held = true
+            running = true
+
+            val ax = prefs.ax * screenW
+            val ay = prefs.ay * screenH
+            val bx = prefs.bx * screenW
+            val by = prefs.by * screenH
+            curX = bx
+            curY = by
+            holdOffset = false
+
+            val path = Path().apply {
+                moveTo(ax, ay)
+                lineTo(bx, by)
+            }
+            val initial = StrokeDescription(
+                path, 0L, prefs.swipeMs.toLong().coerceAtLeast(1L), true
+            )
+            lastStroke = initial
+            dispatchStrokeLocked(initial, generation)
+        }
+    }
+
+    private fun dispatchStrokeLocked(stroke: StrokeDescription, generation: Long) {
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        val callback = object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                synchronized(gestureLock) {
+                    // callback متعلق به اجرای قبلی حق ادامه‌دادن ژست جدید را ندارد.
+                    if (generation != gestureGeneration || !running) return
+                    val previous = lastStroke ?: return
+                    if (!held) {
+                        stopHoldLocked()
+                        return
+                    }
+
+                    val nextX = if (holdOffset) curX - 0.01f else curX + 0.01f
+                    val continuationPath = Path().apply {
+                        moveTo(curX, curY)
+                        lineTo(nextX, curY)
+                    }
+
+                    try {
+                        val continuation = previous.continueStroke(
+                            continuationPath, 0L, 50L, true
+                        )
+                        lastStroke = continuation
+                        curX = nextX
+                        holdOffset = !holdOffset
+                        dispatchStrokeLocked(continuation, generation)
+                    } catch (error: Exception) {
+                        android.util.Log.e(
+                            "HoldGrip", "Continuing held gesture failed; forcing release", error
+                        )
+                        stopHoldLocked()
+                    }
+                }
+            }
+
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                synchronized(gestureLock) {
+                    if (generation != gestureGeneration) return
+                    // لغو از طرف سیستم یعنی زنجیره قبلی دیگر معتبر نیست.
+                    resetLocked()
+                }
+            }
+        }
+
+        val accepted = dispatchGesture(gesture, callback, null)
+        if (!accepted && generation == gestureGeneration) {
+            android.util.Log.e("HoldGrip", "dispatchGesture rejected")
+            stopHoldLocked()
+        }
+    }
+
+    // ACTION_UP / ACTION_CANCEL: این مسیر مستقل از callback اجرا می‌شود.
+    private fun releaseHold() {
+        synchronized(gestureLock) {
+            stopHoldLocked()
+        }
+    }
+
+    private fun stopHoldLocked() {
+        if (!running) {
+            held = false
+            return
+        }
+
+        val releaseX = curX
+        val releaseY = curY
+
+        // ابتدا callbackهای قبلی را بی‌اعتبار کن تا نتوانند ژست را زنده کنند.
+        gestureGeneration++
+        held = false
+        running = false
+        lastStroke = null
         holdOffset = false
 
-        val path = Path().apply {
-            moveTo(ax, ay)
-            lineTo(bx, by)
-        }
-        val initial = StrokeDescription(
-            path, 0L, prefs.swipeMs.toLong().coerceAtLeast(1L), true
-        )
-        lastStroke = initial
-        dispatchStroke(initial)
-    }
-
-    // dispatchGesture با callback و بدون Handler سفارشی؛ ادامه مستقیماً از callback انجام می‌شود.
-    private val holdCallback = object : GestureResultCallback() {
-        override fun onCompleted(gestureDescription: GestureDescription?) {
-            val previous = lastStroke ?: run {
-                reset()
-                return
+        try {
+            val releasePath = Path().apply {
+                moveTo(releaseX, releaseY)
+                lineTo(releaseX + 1f, releaseY + 1f)
             }
-            val shouldContinue = held
-            val nextX = if (holdOffset) curX - 0.01f else curX + 0.01f
-            val continuationPath = Path().apply {
-                moveTo(curX, curY)
-                lineTo(nextX, curY)
-            }
+            val releaseStroke = StrokeDescription(releasePath, 0L, 20L, false)
+            val releaseGesture = GestureDescription.Builder()
+                .addStroke(releaseStroke)
+                .build()
 
-            try {
-                val continuation = previous.continueStroke(
-                    continuationPath, 0L, if (shouldContinue) 50L else 20L, shouldContinue
-                )
-                lastStroke = if (shouldContinue) continuation else null
-                if (shouldContinue) {
-                    curX = nextX
-                    holdOffset = !holdOffset
+            // dispatchGesture جدید، stroke قبلیِ هنوز فعال را لغو می‌کند.
+            // ژست کوتاه مستقل نیز در B با willContinue=false خاتمه می‌یابد.
+            val accepted = dispatchGesture(releaseGesture, object : GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) = Unit
+                override fun onCancelled(gestureDescription: GestureDescription?) {
+                    android.util.Log.w("HoldGrip", "Release gesture was cancelled")
                 }
+            }, null)
 
-                val nextGesture = GestureDescription.Builder()
-                    .addStroke(continuation)
-                    .build()
-                val callback = if (shouldContinue) this else object : GestureResultCallback() {
-                    override fun onCompleted(gestureDescription: GestureDescription?) = reset()
-                    override fun onCancelled(gestureDescription: GestureDescription?) = reset()
-                }
-                if (!dispatchGesture(nextGesture, callback, null)) reset()
-            } catch (_: Exception) {
-                reset()
+            if (!accepted) {
+                android.util.Log.e("HoldGrip", "Immediate release gesture was rejected")
             }
+        } catch (error: Exception) {
+            android.util.Log.e("HoldGrip", "Immediate release dispatch failed", error)
         }
-
-        override fun onCancelled(gestureDescription: GestureDescription?) {
-            // ژست لغوشده را با یک ژست مستقل جایگزین نکن؛ اندروید آن را خاتمه داده است.
-            reset()
-        }
-    }
-
-    private fun dispatchStroke(stroke: StrokeDescription) {
-        val gesture = GestureDescription.Builder().addStroke(stroke).build()
-        if (!dispatchGesture(gesture, holdCallback, null)) reset()
-    }
-
-    private fun releaseHold() {
-        held = false
     }
 
     private fun finishHold() {
         releaseHold()
     }
 
-    private fun reset() {
+    private fun resetLocked() {
+        gestureGeneration++
         running = false
         held = false
         activePointerId = -1
