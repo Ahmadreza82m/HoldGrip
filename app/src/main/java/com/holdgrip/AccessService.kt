@@ -23,6 +23,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 
 class AccessService : AccessibilityService() {
 
@@ -128,7 +129,11 @@ class AccessService : AccessibilityService() {
         readScreen()
         val size = boxSize
         val v = View(this)
-        v.background = circleBg(Color.WHITE)
+        val silver = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFFF1F3F5.toInt(), 0xFF9CA3AF.toInt(), 0xFFDDE1E6.toInt()))
+        silver.shape = GradientDrawable.OVAL
+        silver.setStroke((2 * resources.displayMetrics.density).toInt(), 0xFF626B76.toInt())
+        v.background = silver
+        v.elevation = 8f * resources.displayMetrics.density
         v.alpha = prefs.buttonAlpha.coerceIn(0.2f, 1f)
 
         val x = (prefs.btnX * screenW - size / 2f).toInt().coerceIn(0, screenW - size)
@@ -281,46 +286,59 @@ class AccessService : AccessibilityService() {
         }
     }
 
-    private fun marker(
-        label: String,
-        color: Int,
-        fx: Float,
-        fy: Float,
-        size: Int,
-        onMove: () -> Unit
-    ): TextView {
+    private fun marker(label: String, color: Int, size: Int): TextView {
         val t = TextView(this)
         t.text = label
         t.setTextColor(Color.WHITE)
         t.textSize = 12f
         t.gravity = Gravity.CENTER
-        val markerBg = circleBg(color)
-        markerBg.setStroke((3 * resources.displayMetrics.density).toInt(), Color.WHITE)
-        t.background = markerBg
-        t.elevation = 10f * resources.displayMetrics.density
-        t.layoutParams = FrameLayout.LayoutParams(size, size)
-        t.x = fx * screenW - size / 2f
-        t.y = fy * screenH - size / 2f
-
-        var dx = 0f
-        var dy = 0f
-        t.setOnTouchListener { v, e ->
-            when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    dx = v.x - e.rawX
-                    dy = v.y - e.rawY
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    v.x = (e.rawX + dx).coerceIn(0f, (screenW - size).toFloat())
-                    v.y = (e.rawY + dy).coerceIn(0f, (screenH - size).toFloat())
-                    onMove()
-                }
-            }
-            true
-        }
+        t.isClickable = true
+        t.isFocusable = false
+        val bg = circleBg(color)
+        bg.setStroke((3 * resources.displayMetrics.density).toInt(), Color.WHITE)
+        t.background = bg
+        t.elevation = 16f * resources.displayMetrics.density
+        t.layoutParams = FrameLayout.LayoutParams(size, size, Gravity.TOP or Gravity.LEFT)
         return t
     }
 
+    private fun setMarkerPosition(root: FrameLayout, marker: View, left: Int, top: Int, size: Int) {
+        val lp = marker.layoutParams as FrameLayout.LayoutParams
+        lp.width = size
+        lp.height = size
+        lp.leftMargin = left.coerceIn(0, (root.width - size).coerceAtLeast(0))
+        lp.topMargin = top.coerceIn(0, (root.height - size).coerceAtLeast(0))
+        marker.layoutParams = lp
+    }
+
+    private fun makeMarkerDraggable(root: FrameLayout, marker: View, size: Int, onMove: () -> Unit) {
+        var downRawX = 0f
+        var downRawY = 0f
+        var initialLeft = 0
+        var initialTop = 0
+        marker.setOnTouchListener { view, event ->
+            val lp = view.layoutParams as FrameLayout.LayoutParams
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    initialLeft = lp.leftMargin
+                    initialTop = lp.topMargin
+                    view.parent?.requestDisallowInterceptTouchEvent(true)
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val left = initialLeft + (event.rawX - downRawX).toInt()
+                    val top = initialTop + (event.rawY - downRawY).toInt()
+                    setMarkerPosition(root, view, left, top, size)
+                    onMove()
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { onMove(); true }
+                else -> true
+            }
+        }
+    }
     private fun pill(text: String, color: Int): TextView {
         val d = resources.displayMetrics.density
         val t = TextView(this)
@@ -337,41 +355,36 @@ class AccessService : AccessibilityService() {
         hideEditor()
         hideButton()
         readScreen()
-
         val d = resources.displayMetrics.density
-        val size = boxSize
-
+        val markerSize = (72 * d).toInt().coerceAtLeast(56)
         val root = FrameLayout(this)
-        root.setBackgroundColor(0x66000000)
+        root.setBackgroundColor(0x990B1220.toInt())
+        root.isClickable = true
 
-        val a = marker(getString(R.string.marker_a), 0xFF22C55E.toInt(), prefs.ax, prefs.ay, size) {
-            root.getChildAt(0)?.invalidate()
-        }
-        val b = marker(getString(R.string.marker_b), 0xFFEF4444.toInt(), prefs.bx, prefs.by, size) {
-            root.getChildAt(0)?.invalidate()
-        }
-        val btn = marker(getString(R.string.marker_btn), 0xFF8B5CF6.toInt(), prefs.btnX, prefs.btnY, size) {}
+        val startMarker = marker(getString(R.string.marker_a), 0xFF16A34A.toInt(), markerSize)
+        val endMarker = marker(getString(R.string.marker_b), 0xFFDC2626.toInt(), markerSize)
+        val buttonMarker = marker(getString(R.string.marker_btn), 0xFF7B8490.toInt(), markerSize)
+        val line = LineView(this, startMarker, endMarker, markerSize / 2f)
+        root.addView(line, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        root.addView(startMarker)
+        root.addView(endMarker)
+        root.addView(buttonMarker)
 
-        // خط بین نقطه شروع و پایان (باید اولین فرزند باشد)
-        root.addView(
-            LineView(this, a, b, size / 2f),
-            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
-        )
-        root.addView(a)
-        root.addView(b)
-        root.addView(btn)
-
-        val hint = pill(getString(R.string.editor_hint), 0xCC000000.toInt())
-        val save = pill(getString(R.string.save), 0xFF22C55E.toInt())
-        val cancel = pill(getString(R.string.cancel), 0xFF6B7280.toInt())
-
+        val hint = pill(getString(R.string.editor_hint), 0xEE111827.toInt())
+        val save = pill(getString(R.string.save), 0xFF16A34A.toInt())
+        val cancel = pill(getString(R.string.cancel), 0xFF4B5563.toInt())
         save.setOnClickListener {
-            prefs.ax = ((a.x + size / 2f) / screenW).coerceIn(0f, 1f)
-            prefs.ay = ((a.y + size / 2f) / screenH).coerceIn(0f, 1f)
-            prefs.bx = ((b.x + size / 2f) / screenW).coerceIn(0f, 1f)
-            prefs.by = ((b.y + size / 2f) / screenH).coerceIn(0f, 1f)
-            prefs.btnX = ((btn.x + size / 2f) / screenW).coerceIn(0f, 1f)
-            prefs.btnY = ((btn.y + size / 2f) / screenH).coerceIn(0f, 1f)
+            val w = root.width.coerceAtLeast(1).toFloat()
+            val h = root.height.coerceAtLeast(1).toFloat()
+            val aLp = startMarker.layoutParams as FrameLayout.LayoutParams
+            val bLp = endMarker.layoutParams as FrameLayout.LayoutParams
+            val btnLp = buttonMarker.layoutParams as FrameLayout.LayoutParams
+            prefs.ax = ((aLp.leftMargin + markerSize / 2f) / w).coerceIn(0f, 1f)
+            prefs.ay = ((aLp.topMargin + markerSize / 2f) / h).coerceIn(0f, 1f)
+            prefs.bx = ((bLp.leftMargin + markerSize / 2f) / w).coerceIn(0f, 1f)
+            prefs.by = ((bLp.topMargin + markerSize / 2f) / h).coerceIn(0f, 1f)
+            prefs.btnX = ((btnLp.leftMargin + markerSize / 2f) / w).coerceIn(0f, 1f)
+            prefs.btnY = ((btnLp.topMargin + markerSize / 2f) / h).coerceIn(0f, 1f)
             closeEditor()
         }
         cancel.setOnClickListener { closeEditor() }
@@ -379,36 +392,40 @@ class AccessService : AccessibilityService() {
         val m = (6 * d).toInt()
         val bar = LinearLayout(this)
         bar.orientation = LinearLayout.HORIZONTAL
-        bar.addView(save, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { setMargins(m, m, m, m) })
-        bar.addView(cancel, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { setMargins(m, m, m, m) })
-
+        bar.addView(save, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { setMargins(m, m, m, m) })
+        bar.addView(cancel, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { setMargins(m, m, m, m) })
         val col = LinearLayout(this)
         col.orientation = LinearLayout.VERTICAL
         col.gravity = Gravity.CENTER_HORIZONTAL
         col.addView(hint)
         col.addView(bar)
-
-        val colParams = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            Gravity.TOP or Gravity.CENTER_HORIZONTAL
-        )
-        colParams.topMargin = (72 * d).toInt()
+        val colParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL)
+        colParams.topMargin = (24 * d).toInt()
         root.addView(col, colParams)
 
         try {
-            wm.addView(root, overlayParams(screenW, screenH, 0, 0))
+            val params = overlayParams(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT, 0, 0)
+            wm.addView(root, params)
             editor = root
+            // Wait for the overlay to be measured before placing the markers.
+            root.post {
+                if (editor !== root) return@post
+                val w = root.width.coerceAtLeast(1)
+                val h = root.height.coerceAtLeast(1)
+                setMarkerPosition(root, startMarker, (prefs.ax * w - markerSize / 2f).toInt(), (prefs.ay * h - markerSize / 2f).toInt(), markerSize)
+                setMarkerPosition(root, endMarker, (prefs.bx * w - markerSize / 2f).toInt(), (prefs.by * h - markerSize / 2f).toInt(), markerSize)
+                setMarkerPosition(root, buttonMarker, (prefs.btnX * w - markerSize / 2f).toInt(), (prefs.btnY * h - markerSize / 2f).toInt(), markerSize)
+                makeMarkerDraggable(root, startMarker, markerSize) { line.invalidate() }
+                makeMarkerDraggable(root, endMarker, markerSize) { line.invalidate() }
+                makeMarkerDraggable(root, buttonMarker, markerSize) { line.invalidate() }
+                line.invalidate()
+            }
         } catch (e: Exception) {
             editor = null
+            Toast.makeText(this, "نمایش صفحه تنظیم نقاط ناموفق بود: " + e.message, Toast.LENGTH_LONG).show()
             if (prefs.showButton) showButton()
         }
     }
-
     private fun hideEditor() {
         val v = editor ?: return
         try {
