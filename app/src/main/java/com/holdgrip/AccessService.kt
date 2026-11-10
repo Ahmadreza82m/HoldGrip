@@ -286,46 +286,59 @@ class AccessService : AccessibilityService() {
         }
     }
 
-    private fun marker(
-        label: String,
-        color: Int,
-        fx: Float,
-        fy: Float,
-        size: Int,
-        onMove: () -> Unit
-    ): TextView {
+    private fun marker(label: String, color: Int, size: Int): TextView {
         val t = TextView(this)
         t.text = label
         t.setTextColor(Color.WHITE)
         t.textSize = 12f
         t.gravity = Gravity.CENTER
-        val markerBg = circleBg(color)
-        markerBg.setStroke((3 * resources.displayMetrics.density).toInt(), Color.WHITE)
-        t.background = markerBg
-        t.elevation = 10f * resources.displayMetrics.density
-        t.layoutParams = FrameLayout.LayoutParams(size, size)
-        t.x = fx * screenW - size / 2f
-        t.y = fy * screenH - size / 2f
-
-        var dx = 0f
-        var dy = 0f
-        t.setOnTouchListener { v, e ->
-            when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    dx = v.x - e.rawX
-                    dy = v.y - e.rawY
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    v.x = (e.rawX + dx).coerceIn(0f, (screenW - size).toFloat())
-                    v.y = (e.rawY + dy).coerceIn(0f, (screenH - size).toFloat())
-                    onMove()
-                }
-            }
-            true
-        }
+        t.isClickable = true
+        t.isFocusable = false
+        val bg = circleBg(color)
+        bg.setStroke((3 * resources.displayMetrics.density).toInt(), Color.WHITE)
+        t.background = bg
+        t.elevation = 16f * resources.displayMetrics.density
+        t.layoutParams = FrameLayout.LayoutParams(size, size, Gravity.TOP or Gravity.LEFT)
         return t
     }
 
+    private fun setMarkerPosition(root: FrameLayout, marker: View, left: Int, top: Int, size: Int) {
+        val lp = marker.layoutParams as FrameLayout.LayoutParams
+        lp.width = size
+        lp.height = size
+        lp.leftMargin = left.coerceIn(0, (root.width - size).coerceAtLeast(0))
+        lp.topMargin = top.coerceIn(0, (root.height - size).coerceAtLeast(0))
+        marker.layoutParams = lp
+    }
+
+    private fun makeMarkerDraggable(root: FrameLayout, marker: View, size: Int, onMove: () -> Unit) {
+        var downRawX = 0f
+        var downRawY = 0f
+        var initialLeft = 0
+        var initialTop = 0
+        marker.setOnTouchListener { view, event ->
+            val lp = view.layoutParams as FrameLayout.LayoutParams
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    initialLeft = lp.leftMargin
+                    initialTop = lp.topMargin
+                    view.parent?.requestDisallowInterceptTouchEvent(true)
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val left = initialLeft + (event.rawX - downRawX).toInt()
+                    val top = initialTop + (event.rawY - downRawY).toInt()
+                    setMarkerPosition(root, view, left, top, size)
+                    onMove()
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { onMove(); true }
+                else -> true
+            }
+        }
+    }
     private fun pill(text: String, color: Int): TextView {
         val d = resources.displayMetrics.density
         val t = TextView(this)
