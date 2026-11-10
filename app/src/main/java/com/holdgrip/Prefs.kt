@@ -45,4 +45,8 @@ class Prefs(context: Context) {
     var showButton: Boolean
         get() = sp.getBoolean("showButton", true)
         set(v) { sp.edit().putBoolean("showButton", v).apply() }
+
+    var locked: Boolean
+        get() = sp.getBoolean("locked", true)
+        set(v) { sp.edit().putBoolean("locked", v).apply() }
 }
