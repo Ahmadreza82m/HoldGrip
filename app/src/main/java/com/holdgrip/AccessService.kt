@@ -146,37 +146,47 @@ class AccessService : AccessibilityService() {
         var downY = 0f
         var startX = 0
         var startY = 0
+        var dragging = false
+        val touchSlop = 10f * resources.displayMetrics.density
 
         v.setOnTouchListener { _, e ->
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     activePointerId = e.getPointerId(0)
-                    if (prefs.locked) {
-                        startHold()
-                    } else {
-                        downX = e.rawX
-                        downY = e.rawY
-                        startX = bp.x
-                        startY = bp.y
+                    downX = e.rawX
+                    downY = e.rawY
+                    startX = bp.x
+                    startY = bp.y
+                    dragging = false
+                    startHold()
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (e.findPointerIndex(activePointerId) >= 0) {
+                        val dx = e.rawX - downX
+                        val dy = e.rawY - downY
+                        if (!prefs.locked && !dragging &&
+                            (kotlin.math.abs(dx) > touchSlop || kotlin.math.abs(dy) > touchSlop)
+                        ) {
+                            dragging = true
+                            releaseHold()
+                        }
+                        if (!prefs.locked && dragging) {
+                            bp.x = (startX + dx.toInt()).coerceIn(0, screenW - size)
+                            bp.y = (startY + dy.toInt()).coerceIn(0, screenH - size)
+                            try { wm.updateViewLayout(v, bp) } catch (_: Exception) {}
+                        }
                     }
                 }
-                MotionEvent.ACTION_MOVE -> if (!prefs.locked) {
-                    bp.x = (startX + (e.rawX - downX).toInt()).coerceIn(0, screenW - size)
-                    bp.y = (startY + (e.rawY - downY).toInt()).coerceIn(0, screenH - size)
-                    try { wm.updateViewLayout(v, bp) } catch (_: Exception) {}
-                }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    if (prefs.locked) {
-                        releaseHold()
-                    } else {
+                    releaseHold()
+                    if (dragging) {
                         prefs.btnX = (bp.x + size / 2f) / screenW
                         prefs.btnY = (bp.y + size / 2f) / screenH
                     }
                     activePointerId = -1
                 }
                 MotionEvent.ACTION_POINTER_UP -> {
-                    // فقط بالا رفتن همان انگشتی که دکمه را پایین زده، نگه‌داری را تمام می‌کند.
-                    if (prefs.locked && e.getPointerId(e.actionIndex) == activePointerId) {
+                    if (e.getPointerId(e.actionIndex) == activePointerId) {
                         releaseHold()
                         activePointerId = -1
                     }
@@ -215,123 +225,84 @@ class AccessService : AccessibilityService() {
     }
 
     // ------------------------------------------------------------
-    // ژست نگه‌داشتن پیوسته
-    // A -> B با willContinue = true، بعد بلوک‌های ۱۰۰ میلی‌ثانیه‌ای
-    // تا رها شدن دکمه، و در آخر یک بلوک کوتاه با willContinue = false
-    // ------------------------------------------------------------
+    // ژست پیوسته: A -> B و ادامه همان stroke تا رهاسازی
 
     private fun startHold() {
         if (running) return
-        running = true
-        held = true
-        finishing = false
         readScreen()
+        held = true
+        running = true
+        finishing = false
+        releaseAttempts = 0
 
         val ax = prefs.ax * screenW
         val ay = prefs.ay * screenH
         val bx = prefs.bx * screenW
         val by = prefs.by * screenH
-
         curX = bx
         curY = by
-        val path = Path()
-        path.moveTo(ax, ay)
-        path.lineTo(bx, by)
 
-        val duration = prefs.swipeMs.toLong().coerceAtLeast(1L)
-        val stroke = StrokeDescription(path, 0L, duration, true)
-        lastStroke = stroke
-        send(stroke)
-    }
-
-    private fun send(stroke: StrokeDescription) {
-        val gesture = GestureDescription.Builder().addStroke(stroke).build()
-        val ok = dispatchGesture(gesture, object : GestureResultCallback() {
-            override fun onCompleted(gestureDescription: GestureDescription?) {
-                if (finishing) reset() else next()
-            }
-
-            override fun onCancelled(gestureDescription: GestureDescription?) {
-                // فقط در مسیر خطا از ژست مستقل برای آزادسازی اضطراری استفاده می‌شود.
-                held = false
-                forceRelease()
-            }
-        }, handler)
-        if (!ok) {
-            held = false
-            forceRelease()
+        val path = Path().apply {
+            moveTo(ax, ay)
+            lineTo(bx, by)
         }
+        val initial = StrokeDescription(
+            path, 0L, prefs.swipeMs.toLong().coerceAtLeast(1L), true
+        )
+        lastStroke = initial
+        dispatchStroke(initial)
     }
 
-    private fun next() {
-        val last = lastStroke
-        if (last == null) {
+    // dispatchGesture با callback و بدون Handler سفارشی؛ ادامه مستقیماً از callback انجام می‌شود.
+    private val holdCallback = object : GestureResultCallback() {
+        override fun onCompleted(gestureDescription: GestureDescription?) {
+            val previous = lastStroke ?: run {
+                reset()
+                return
+            }
+            val shouldContinue = held
+            val continuationPath = Path().apply {
+                moveTo(curX, curY)
+                lineTo(curX + 0.01f, curY)
+            }
+
+            try {
+                val continuation = previous.continueStroke(
+                    continuationPath, 0L, if (shouldContinue) 50L else 20L, shouldContinue
+                )
+                lastStroke = if (shouldContinue) continuation else null
+                finishing = !shouldContinue
+
+                val nextGesture = GestureDescription.Builder()
+                    .addStroke(continuation)
+                    .build()
+                val callback = if (shouldContinue) this else object : GestureResultCallback() {
+                    override fun onCompleted(gestureDescription: GestureDescription?) = reset()
+                    override fun onCancelled(gestureDescription: GestureDescription?) = reset()
+                }
+                if (!dispatchGesture(nextGesture, callback, null)) reset()
+            } catch (_: Exception) {
+                reset()
+            }
+        }
+
+        override fun onCancelled(gestureDescription: GestureDescription?) {
+            // ژست لغوشده را با یک ژست مستقل جایگزین نکن؛ اندروید آن را خاتمه داده است.
             reset()
-            return
         }
-        // در زمان نگه‌داری، زنجیره بدون وقفه روی B ادامه پیدا می‌کند.
-        // استروک پایانی یک حرکت یک‌پیکسلی ۵۰ میلی‌ثانیه‌ای است تا رهاسازی ثبت شود.
-        val keepGoing = held
-        val path = Path()
-        path.moveTo(curX, curY)
-        if (!keepGoing) path.lineTo(curX + 1f, curY)
+    }
 
-        finishing = !keepGoing
-        val duration = if (keepGoing) 200L else 50L
-        try {
-            val stroke = last.continueStroke(path, 0L, duration, keepGoing)
-            lastStroke = stroke
-            send(stroke)
-        } catch (_: Exception) {
-            held = false
-            forceRelease()
-        }
+    private fun dispatchStroke(stroke: StrokeDescription) {
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        if (!dispatchGesture(gesture, holdCallback, null)) reset()
     }
 
     private fun releaseHold() {
-        // زنجیره فعلی را قطع نکن؛ callback بلوک جاری، next() را اجرا می‌کند
-        // و next() همان StrokeDescription را با willContinue=false خاتمه می‌دهد.
         held = false
     }
 
     private fun finishHold() {
-        // حتی هنگام بسته‌شدن overlay نیز اجازه بده زنجیره فعلی به استروک نهایی برسد.
         releaseHold()
-    }
-
-    // ارسال یک ژست مستقل برای بالا بردن انگشت مجازی در نقطه B.
-    // در صورت رد یا لغو شدن، چند بار با فاصله کوتاه تلاش می‌کنیم.
-    private fun forceRelease() {
-        if (!running) return
-        held = false
-        finishing = true
-        if (releaseAttempts >= 4) {
-            reset()
-            return
-        }
-
-        releaseAttempts++
-        val path = Path().apply {
-            moveTo(curX, curY)
-            lineTo(curX + 1f, curY)
-        }
-        val gesture = GestureDescription.Builder()
-            .addStroke(StrokeDescription(path, 0L, 50L, false))
-            .build()
-
-        val accepted = dispatchGesture(gesture, object : GestureResultCallback() {
-            override fun onCompleted(gestureDescription: GestureDescription?) {
-                reset()
-            }
-
-            override fun onCancelled(gestureDescription: GestureDescription?) {
-                if (running) handler.postDelayed({ forceRelease() }, 60L)
-            }
-        }, handler)
-
-        if (!accepted && running) {
-            handler.postDelayed({ forceRelease() }, 60L)
-        }
     }
 
     private fun reset() {
