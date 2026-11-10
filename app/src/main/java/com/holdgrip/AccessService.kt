@@ -45,7 +45,6 @@ class AccessService : AccessibilityService() {
     private var lastStroke: StrokeDescription? = null
     private var curX = 0f
     private var curY = 0f
-    private var holdOffset = false
     private var activePointerId = -1
 
     private val boxSize: Int
@@ -176,6 +175,7 @@ class AccessService : AccessibilityService() {
                     }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    android.util.Log.d("HoldGrip", "Floating button released: action=${e.actionMasked}")
                     releaseHold()
                     if (dragging) {
                         prefs.btnX = (bp.x + size / 2f) / screenW
@@ -240,7 +240,6 @@ class AccessService : AccessibilityService() {
             val by = prefs.by * screenH
             curX = bx
             curY = by
-            holdOffset = false
 
             val path = Path().apply {
                 moveTo(ax, ay)
@@ -270,24 +269,24 @@ class AccessService : AccessibilityService() {
                     val previous = lastStroke ?: return
 
                     val shouldContinue = held
-                    val nextX = if (holdOffset) curX - 0.01f else curX + 0.01f
+                    // A zero-length path is an explicit stationary touch in Android's API.
+                    // Keep the continued pointer exactly at B instead of nudging it by a
+                    // sub-pixel amount; the final willContinue=false segment then emits UP
+                    // at the same coordinate without creating a second touch.
                     val continuationPath = Path().apply {
                         moveTo(curX, curY)
-                        lineTo(nextX, curY)
                     }
 
                     try {
                         val continuation = previous.continueStroke(
                             continuationPath,
                             0L,
-                            if (shouldContinue) 16L else 1L,
+                            16L,
                             shouldContinue
                         )
 
                         if (shouldContinue) {
                             lastStroke = continuation
-                            curX = nextX
-                            holdOffset = !holdOffset
                         } else {
                             // آخرین ادامه، willContinue=false؛ پایان واقعی همان لمس.
                             lastStroke = null
@@ -349,6 +348,7 @@ class AccessService : AccessibilityService() {
     private fun releaseHold() {
         synchronized(gestureLock) {
             held = false
+            android.util.Log.d("HoldGrip", "releaseHold: held=false; waiting for current stroke boundary")
         }
     }
 
@@ -362,7 +362,6 @@ class AccessService : AccessibilityService() {
         held = false
         activePointerId = -1
         lastStroke = null
-        holdOffset = false
     }
 
     // ------------------------------------------------------------
