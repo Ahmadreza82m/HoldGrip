@@ -46,7 +46,6 @@ class AccessService : AccessibilityService() {
     private var lastStroke: StrokeDescription? = null
     private var curX = 0f
     private var curY = 0f
-    private var flip = false
 
     private val boxSize: Int
         get() = (64 * resources.displayMetrics.density).toInt()
@@ -122,40 +121,123 @@ class AccessService : AccessibilityService() {
     // دکمه شناور
     // ------------------------------------------------------------
 
+    private var buttonParams: WindowManager.LayoutParams? = null
+    private var lockView: View? = null
+    private var lockParams: WindowManager.LayoutParams? = null
+
+    private fun placeLock() {
+        val bp = buttonParams ?: return
+        val lp = lockParams ?: return
+        val lv = lockView ?: return
+        val size = boxSize
+        val lockSize = size / 2
+        lp.x = bp.x + (size - lockSize) / 2
+        lp.y = if (bp.y - lockSize - 8 >= 0) bp.y - lockSize - 8 else bp.y + size + 8
+        try {
+            wm.updateViewLayout(lv, lp)
+        } catch (e: Exception) {
+        }
+    }
+
     fun showButton() {
         hideButton()
         readScreen()
         val size = boxSize
+        val lockSize = size / 2
+
         val v = TextView(this)
         v.text = getString(R.string.hold)
         v.setTextColor(Color.WHITE)
         v.textSize = 12f
         v.gravity = Gravity.CENTER
         v.background = circleBg(0xCC8B5CF6.toInt())
+
+        val x = (prefs.btnX * screenW - size / 2f).toInt().coerceIn(0, screenW - size)
+        val y = (prefs.btnY * screenH - size / 2f).toInt().coerceIn(0, screenH - size)
+        val bp = overlayParams(size, size, x, y)
+
+        var downX = 0f
+        var downY = 0f
+        var startX = 0
+        var startY = 0
         v.setOnTouchListener { _, e ->
-            when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> startHold()
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> held = false
+            if (prefs.locked) {
+                // حالت قفل: نگه داشتن = ژست
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> startHold()
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> held = false
+                }
+            } else {
+                // حالت باز: دکمه با انگشت جابه‌جا می‌شود و ژستی اجرا نمی‌شود
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        downX = e.rawX
+                        downY = e.rawY
+                        startX = bp.x
+                        startY = bp.y
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        bp.x = (startX + (e.rawX - downX).toInt()).coerceIn(0, screenW - size)
+                        bp.y = (startY + (e.rawY - downY).toInt()).coerceIn(0, screenH - size)
+                        try {
+                            wm.updateViewLayout(v, bp)
+                        } catch (ex: Exception) {
+                        }
+                        placeLock()
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        prefs.btnX = (bp.x + size / 2f) / screenW
+                        prefs.btnY = (bp.y + size / 2f) / screenH
+                    }
+                }
             }
             true
         }
-        val x = (prefs.btnX * screenW - size / 2f).toInt()
-        val y = (prefs.btnY * screenH - size / 2f).toInt()
+
+        // دکمه کوچک قفل بالای دکمه اصلی
+        val lv = TextView(this)
+        lv.textSize = 16f
+        lv.gravity = Gravity.CENTER
+        lv.background = circleBg(0xCC374151.toInt())
+        lv.text = if (prefs.locked) "\uD83D\uDD12" else "\uD83D\uDD13"
+        lv.setOnClickListener {
+            prefs.locked = !prefs.locked
+            lv.text = if (prefs.locked) "\uD83D\uDD12" else "\uD83D\uDD13"
+        }
+        val lp = overlayParams(lockSize, lockSize, 0, 0)
+
         try {
-            wm.addView(v, overlayParams(size, size, x, y))
+            wm.addView(v, bp)
             button = v
+            buttonParams = bp
+            wm.addView(lv, lp)
+            lockView = lv
+            lockParams = lp
+            placeLock()
         } catch (e: Exception) {
-            button = null
+            hideButton()
         }
     }
 
     fun hideButton() {
-        val v = button ?: return
-        try {
-            wm.removeView(v)
-        } catch (e: Exception) {
+        val v = button
+        if (v != null) {
+            try {
+                wm.removeView(v)
+            } catch (e: Exception) {
+            }
+        }
+        val lv = lockView
+        if (lv != null) {
+            try {
+                wm.removeView(lv)
+            } catch (e: Exception) {
+            }
         }
         button = null
+        lockView = null
+        buttonParams = null
+        lockParams = null
     }
 
     // ------------------------------------------------------------
@@ -178,8 +260,6 @@ class AccessService : AccessibilityService() {
 
         curX = bx
         curY = by
-        flip = false
-
         val path = Path()
         path.moveTo(ax, ay)
         path.lineTo(bx, by)
@@ -210,17 +290,13 @@ class AccessService : AccessibilityService() {
             reset()
             return
         }
-        val nextY = if (flip) curY - 1f else curY + 1f
-        flip = !flip
-
+        // نگه‌داری دقیقاً روی نقطه B، بدون هیچ حرکتی (فقط یک نقطه)
         val path = Path()
         path.moveTo(curX, curY)
-        path.lineTo(curX, nextY)
-        curY = nextY
 
         val keepGoing = held
         finishing = !keepGoing
-        val duration = if (keepGoing) 100L else 30L
+        val duration = if (keepGoing) 200L else 10L
         val stroke = last.continueStroke(path, 0L, duration, keepGoing)
         lastStroke = stroke
         send(stroke)
