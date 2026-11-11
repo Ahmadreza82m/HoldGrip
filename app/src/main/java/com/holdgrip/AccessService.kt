@@ -249,65 +249,129 @@ class AccessService : AccessibilityService() {
     }
 
     // ------------------------------------------------------------
-    // ژست پیوسته A -> B؛ چرخه عمر در HoldChain مدیریت می‌شود.
+    // آزمایش مستقل Auto.js-inspired:
+    // 1) یک ژست A -> B
+    // 2) پس از اتمام آن، یک ژست طولانی و ثابت در B
+    // 3) هنگام رهاسازی، dispatch ژست کوتاه B برای لغو ژست طولانی
+    //
+    // dispatchGesture جدید، ژست در حال اجرا را لغو می‌کند؛ این رفتار
+    // عمداً در این شاخه برای آزمایش روش ارسالی کاربر استفاده شده است.
 
-    private val mainHandler = Handler(Looper.getMainLooper())
+    private var holdRequested = false
+    private var holdGeneration = 0L
 
-    private val chainPort = object : HoldChain.Port<StrokeDescription> {
-        override fun begin(durationMs: Long): StrokeDescription {
-            readScreen()
-            val ax = prefs.ax * screenW
-            val ay = prefs.ay * screenH
-            curX = prefs.bx * screenW
-            curY = prefs.by * screenH
-            val path = Path().apply {
-                moveTo(ax, ay)
-                lineTo(curX, curY)
-            }
-            return StrokeDescription(path, 0L, durationMs, true)
+    private fun pointPath(x: Float, y: Float): Path =
+        Path().apply {
+            moveTo(x, y)
+            lineTo(x, y + 1f)
         }
 
-        override fun cont(prev: StrokeDescription, durationMs: Long, willContinue: Boolean): StrokeDescription {
-            val stationaryPath = Path().apply { moveTo(curX, curY) }
-            return prev.continueStroke(stationaryPath, 0L, durationMs, willContinue)
-        }
-
-        override fun dispatch(stroke: StrokeDescription, cb: HoldChain.Callback): Boolean {
-            val gesture = GestureDescription.Builder().addStroke(stroke).build()
-            return dispatchGesture(gesture, object : GestureResultCallback() {
-                override fun onCompleted(gestureDescription: GestureDescription?) = cb.onCompleted()
-                override fun onCancelled(gestureDescription: GestureDescription?) = cb.onCancelled()
-            }, null)
-        }
-
-        override fun post(delayMs: Long, r: () -> Unit): HoldChain.Cancelable {
-            val task = Runnable { r() }
-            mainHandler.postDelayed(task, delayMs)
-            return HoldChain.Cancelable { mainHandler.removeCallbacks(task) }
-        }
-    }
-
-    private val chain = HoldChain(chainPort) { message ->
-        android.util.Log.d("HoldGrip", message)
-        when {
-            message.startsWith("release:") -> setButtonDiagnosticState("release_requested")
-            message == "final UP confirmed" -> setButtonDiagnosticState("released")
-            message.startsWith("cancelled by system") -> setButtonDiagnosticState("stroke_cancelled")
-            message.contains("FAILED") || message.contains("threw") -> setButtonDiagnosticState("error")
-            message == "first dispatch rejected" -> setButtonDiagnosticState("dispatch_rejected")
-        }
+    private fun dispatchAtB(durationMs: Long, callback: GestureResultCallback? = null): Boolean {
+        readScreen()
+        val bx = prefs.bx * screenW
+        val by = prefs.by * screenH
+        val stroke = StrokeDescription(pointPath(bx, by), 0L, durationMs.coerceAtLeast(1L))
+        return dispatchGesture(
+            GestureDescription.Builder().addStroke(stroke).build(),
+            callback,
+            null
+        )
     }
 
     private fun startHold() {
-        chain.press(prefs.swipeMs.toLong())
+        if (holdRequested) return
+        holdRequested = true
+        val generation = ++holdGeneration
+
+        readScreen()
+        val ax = prefs.ax * screenW
+        val ay = prefs.ay * screenH
+        val bx = prefs.bx * screenW
+        val by = prefs.by * screenH
+        val swipeMs = prefs.swipeMs.toLong().coerceAtLeast(1L)
+
+        val path = Path().apply {
+            moveTo(ax, ay)
+            lineTo(bx, by)
+        }
+        val swipe = GestureDescription.Builder()
+            .addStroke(StrokeDescription(path, 0L, swipeMs))
+            .build()
+
+        val accepted = dispatchGesture(swipe, object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                if (generation != holdGeneration || !holdRequested) return
+
+                // فاز دوم: لمس ثابت در B تا ۶۰ ثانیه.
+                // در صورت رهاسازی، ژست کوتاه releaseHold آن را لغو می‌کند.
+                val holdAccepted = dispatchAtB(60_000L, object : GestureResultCallback() {
+                    override fun onCompleted(gestureDescription: GestureDescription?) {
+                        if (generation == holdGeneration && holdRequested) {
+                            android.util.Log.d("HoldGrip", "60s hold completed while button is still down")
+                            setButtonDiagnosticState("error")
+                        }
+                    }
+
+                    override fun onCancelled(gestureDescription: GestureDescription?) {
+                        if (generation == holdGeneration && holdRequested) {
+                            android.util.Log.w("HoldGrip", "long hold cancelled unexpectedly")
+                            setButtonDiagnosticState("stroke_cancelled")
+                        }
+                    }
+                })
+                if (!holdAccepted && generation == holdGeneration) {
+                    android.util.Log.e("HoldGrip", "long hold dispatch rejected")
+                    setButtonDiagnosticState("dispatch_rejected")
+                } else if (holdAccepted) {
+                    setButtonDiagnosticState("pressed")
+                }
+            }
+
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                if (generation == holdGeneration && holdRequested) {
+                    android.util.Log.w("HoldGrip", "A-to-B swipe cancelled unexpectedly")
+                    setButtonDiagnosticState("stroke_cancelled")
+                }
+            }
+        }, null)
+
+        if (!accepted) {
+            holdRequested = false
+            android.util.Log.e("HoldGrip", "A-to-B swipe dispatch rejected")
+            setButtonDiagnosticState("dispatch_rejected")
+        }
     }
 
     private fun releaseHold() {
-        chain.release()
+        if (!holdRequested) return
+        holdRequested = false
+        val generation = holdGeneration
+        setButtonDiagnosticState("release_requested")
+
+        // dispatchGesture جدید، ژست طولانی در B را لغو می‌کند.
+        val accepted = dispatchAtB(1L, object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                if (generation == holdGeneration) {
+                    android.util.Log.d("HoldGrip", "release gesture completed")
+                    setButtonDiagnosticState("released")
+                }
+            }
+
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                if (generation == holdGeneration) {
+                    android.util.Log.w("HoldGrip", "release gesture was cancelled")
+                    setButtonDiagnosticState("error")
+                }
+            }
+        })
+        if (!accepted) {
+            android.util.Log.e("HoldGrip", "release gesture dispatch rejected")
+            setButtonDiagnosticState("error")
+        }
     }
 
     private fun finishHold() {
-        chain.abort()
+        releaseHold()
     }
 
     // ------------------------------------------------------------
