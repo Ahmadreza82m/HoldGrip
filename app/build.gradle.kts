@@ -3,6 +3,8 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val githubBuildNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 3
+
 android {
     namespace = "com.holdgrip"
     compileSdk = 34
@@ -11,8 +13,9 @@ android {
         applicationId = "com.holdgrip"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.2"
+        // GitHub Actions run number increases automatically for every build.
+        versionCode = githubBuildNumber
+        versionName = "1.2.$githubBuildNumber"
     }
 
     buildTypes {
