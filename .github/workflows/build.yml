@@ -19,14 +19,31 @@ jobs:
         with:
           gradle-version: 8.7
 
-      # Keep the same debug signing key between GitHub runner builds.
-      # This lets users install future APKs as updates without uninstalling
-      # the app or losing its local settings/accessibility setup.
+      # Restore the same debug signing key on every build.
       - name: Restore stable debug signing key
         uses: actions/cache@v4
         with:
           path: ~/.android/debug.keystore
           key: holdgrip-debug-keystore-v1
+
+      # The cache is empty on the first run, so create the key before Gradle
+      # builds the APK. The cache action saves it after the job completes.
+      - name: Create stable debug signing key if missing
+        run: |
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair \
+              -v \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storetype JKS \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
 
       - name: Run JVM unit tests
         run: gradle testDebugUnitTest
