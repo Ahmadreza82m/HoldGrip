@@ -28,6 +28,9 @@ jobs:
           path: ~/.android/debug.keystore
           key: holdgrip-debug-keystore-v1
 
+      - name: Run JVM unit tests
+        run: gradle testDebugUnitTest
+
       - name: Build debug APK
         run: gradle assembleDebug
 

@@ -12,6 +12,8 @@ import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.MotionEvent
@@ -37,12 +39,7 @@ class AccessService : AccessibilityService() {
     private var screenW = 0
     private var screenH = 0
 
-    // وضعیت ژست؛ state و callbackها با یک قفل مشترک هماهنگ می‌شوند.
-    private val gestureLock = Any()
-    @Volatile private var held = false
-    private var running = false
-    private var gestureGeneration = 0L
-    private var lastStroke: StrokeDescription? = null
+    // مختصات نقطه پایان و شناسه انگشت واقعی روی دکمه شناور.
     private var curX = 0f
     private var curY = 0f
     private var activePointerId = -1
@@ -65,7 +62,9 @@ class AccessService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
 
-    override fun onInterrupt() {}
+    override fun onInterrupt() {
+        finishHold()
+    }
 
     override fun onUnbind(intent: Intent?): Boolean {
         finishHold()
@@ -250,186 +249,65 @@ class AccessService : AccessibilityService() {
     }
 
     // ------------------------------------------------------------
-    // ژست پیوسته A -> B؛ رهاسازی با آخرین ادامه همان Stroke
+    // ژست پیوسته A -> B؛ چرخه عمر در HoldChain مدیریت می‌شود.
 
-    private fun startHold() {
-        synchronized(gestureLock) {
-            if (running) return
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private val chainPort = object : HoldChain.Port<StrokeDescription> {
+        override fun begin(durationMs: Long): StrokeDescription {
             readScreen()
-
-            val generation = ++gestureGeneration
-            held = true
-            running = true
-            setButtonDiagnosticState("pressed")
-
             val ax = prefs.ax * screenW
             val ay = prefs.ay * screenH
-            val bx = prefs.bx * screenW
-            val by = prefs.by * screenH
-            curX = bx
-            curY = by
-
+            curX = prefs.bx * screenW
+            curY = prefs.by * screenH
             val path = Path().apply {
                 moveTo(ax, ay)
-                lineTo(bx, by)
+                lineTo(curX, curY)
             }
-            val initial = StrokeDescription(
-                path, 0L, prefs.swipeMs.toLong().coerceAtLeast(1L), true
-            )
-            lastStroke = initial
-            dispatchStrokeLocked(initial, generation)
+            return StrokeDescription(path, 0L, durationMs, true)
+        }
+
+        override fun cont(prev: StrokeDescription, durationMs: Long, willContinue: Boolean): StrokeDescription {
+            val stationaryPath = Path().apply { moveTo(curX, curY) }
+            return prev.continueStroke(stationaryPath, 0L, durationMs, willContinue)
+        }
+
+        override fun dispatch(stroke: StrokeDescription, cb: HoldChain.Callback): Boolean {
+            val gesture = GestureDescription.Builder().addStroke(stroke).build()
+            return dispatchGesture(gesture, object : GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) = cb.onCompleted()
+                override fun onCancelled(gestureDescription: GestureDescription?) = cb.onCancelled()
+            }, null)
+        }
+
+        override fun post(delayMs: Long, r: () -> Unit): HoldChain.Cancelable {
+            val task = Runnable { r() }
+            mainHandler.postDelayed(task, delayMs)
+            return HoldChain.Cancelable { mainHandler.removeCallbacks(task) }
         }
     }
 
-    /*
-     * محدودیت مهم Android Accessibility API:
-     * continueStroke فقط پس از onCompleted بخش جاری معتبر است.
-     * بنابراین ACTION_UP همان لحظه held=false می‌کند؛ در اولین مرز
-     * تکمیل Stroke، همان زنجیره با willContinue=false خاتمه می‌یابد.
-     * هیچ لمس مستقل/جدیدی در B ساخته نمی‌شود.
-     */
-    private fun dispatchStrokeLocked(stroke: StrokeDescription, generation: Long) {
-        val gesture = GestureDescription.Builder().addStroke(stroke).build()
-        val callback = object : GestureResultCallback() {
-            override fun onCompleted(gestureDescription: GestureDescription?) {
-                synchronized(gestureLock) {
-                    if (generation != gestureGeneration || !running) {
-                        android.util.Log.w("HoldGrip", "onCompleted ignored: stale generation=$generation current=$gestureGeneration running=$running")
-                        return
-                    }
-                    val previous = lastStroke ?: run {
-                        android.util.Log.e("HoldGrip", "onCompleted: lastStroke is null; held=$held")
-                        resetLocked()
-                        return
-                    }
-
-                    val shouldContinue = held
-                    android.util.Log.d("HoldGrip", "onCompleted: generation=$generation held=$held previousWillContinue=${previous.willContinue()} -> continue=$shouldContinue")
-                    // Android requires a continuation Path with actual geometry.
-                    // moveTo(B) alone is an empty/zero-length path on Android versions
-                    // that validate the path, and can throw before the final UP is sent.
-                    // Make a tiny out-and-back sub-pixel movement: it starts and ends at B,
-                    // keeps the same pointer/stroke, and gives the continuation non-zero length.
-                    val continuationPath = makeStationaryContinuationPath(curX, curY)
-
-                    try {
-                        val continuation = previous.continueStroke(
-                            continuationPath,
-                            0L,
-                            40L,
-                            shouldContinue
-                        )
-
-                        if (shouldContinue) {
-                            lastStroke = continuation
-                        } else {
-                            // آخرین ادامه، willContinue=false؛ پایان واقعی همان لمس.
-                            lastStroke = null
-                        }
-
-                        val nextGesture = GestureDescription.Builder()
-                            .addStroke(continuation)
-                            .build()
-
-                        if (shouldContinue) {
-                            dispatchStrokeLocked(continuation, generation)
-                        } else {
-                            val accepted = dispatchGesture(
-                                nextGesture,
-                                object : GestureResultCallback() {
-                                    override fun onCompleted(gestureDescription: GestureDescription?) {
-                                        synchronized(gestureLock) {
-                                            android.util.Log.d("HoldGrip", "Final UP completed: generation=$generation")
-                                            if (generation == gestureGeneration) {
-                                                setButtonDiagnosticState("released")
-                                                resetLocked()
-                                            }
-                                        }
-                                    }
-
-                                    override fun onCancelled(gestureDescription: GestureDescription?) {
-                                        synchronized(gestureLock) {
-                                            android.util.Log.e("HoldGrip", "Final UP cancelled: generation=$generation")
-                                            if (generation == gestureGeneration) {
-                                                setButtonDiagnosticState("final_cancelled")
-                                                resetLocked()
-                                            }
-                                        }
-                                    }
-                                },
-                                null
-                            )
-                            if (accepted) {
-                                android.util.Log.d("HoldGrip", "Final release dispatch accepted: generation=$generation")
-                            } else {
-                                setButtonDiagnosticState("dispatch_rejected")
-                                android.util.Log.e("HoldGrip", "Final release dispatch rejected: generation=$generation")
-                                resetLocked()
-                            }
-                        }
-                    } catch (error: Exception) {
-                        setButtonDiagnosticState("continuation_exception")
-                        Toast.makeText(this@AccessService, "خطا در ادامه ژست: ${error.javaClass.simpleName}", Toast.LENGTH_LONG).show()
-                        android.util.Log.e(
-                            "HoldGrip",
-                            "Could not finish continuous stroke; Android rejected continuation",
-                            error
-                        )
-                        resetLocked()
-                    }
-                }
-            }
-
-            override fun onCancelled(gestureDescription: GestureDescription?) {
-                synchronized(gestureLock) {
-                    android.util.Log.e("HoldGrip", "Stroke cancelled: generation=$generation current=$gestureGeneration held=$held running=$running")
-                    if (generation == gestureGeneration) {
-                        setButtonDiagnosticState("stroke_cancelled")
-                        resetLocked()
-                    }
-                }
-            }
-        }
-
-        val accepted = dispatchGesture(gesture, callback, null)
-        android.util.Log.d("HoldGrip", "dispatchGesture: accepted=$accepted generation=$generation willContinue=${stroke.willContinue()}")
-        if (!accepted && generation == gestureGeneration) {
-            android.util.Log.e("HoldGrip", "dispatchGesture rejected")
-            setButtonDiagnosticState("dispatch_rejected")
-            resetLocked()
+    private val chain = HoldChain(chainPort) { message ->
+        android.util.Log.d("HoldGrip", message)
+        when {
+            message.startsWith("release:") -> setButtonDiagnosticState("release_requested")
+            message == "final UP confirmed" -> setButtonDiagnosticState("released")
+            message.startsWith("cancelled by system") -> setButtonDiagnosticState("stroke_cancelled")
+            message.contains("FAILED") || message.contains("threw") -> setButtonDiagnosticState("error")
+            message == "first dispatch rejected" -> setButtonDiagnosticState("dispatch_rejected")
         }
     }
 
-    // Android explicitly supports a zero-length Path (a single moveTo) as
-    // a stationary touch. This keeps the same virtual pointer exactly at B,
-    // without the artificial sub-pixel out-and-back movement.
-    private fun makeStationaryContinuationPath(x: Float, y: Float): Path {
-        return Path().apply {
-            moveTo(x, y)
-        }
+    private fun startHold() {
+        chain.press(prefs.swipeMs.toLong())
     }
 
-    // این متد مستقیماً از ACTION_UP و ACTION_CANCEL فراخوانی می‌شود.
-    // Stroke فعال را null نمی‌کنیم؛ برای خاتمه معتبر باید callback آن برسد.
     private fun releaseHold() {
-        synchronized(gestureLock) {
-            if (!held) return
-            held = false
-            setButtonDiagnosticState("release_requested")
-            android.util.Log.d("HoldGrip", "releaseHold: received generation=$gestureGeneration running=$running lastStrokeWillContinue=${lastStroke?.willContinue()}")
-        }
+        chain.release()
     }
 
     private fun finishHold() {
-        releaseHold()
-    }
-
-    private fun resetLocked() {
-        gestureGeneration++
-        running = false
-        held = false
-        activePointerId = -1
-        lastStroke = null
+        chain.abort()
     }
 
     // ------------------------------------------------------------
