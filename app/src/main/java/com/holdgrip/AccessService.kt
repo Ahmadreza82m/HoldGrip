@@ -257,6 +257,10 @@ class AccessService : AccessibilityService() {
 
     private var holdRequested = false
     private var holdGeneration = 0L
+    // اگر دکمه پیش از پایان حرکت A به B رها شود، ابتدا حرکت کامل می‌شود
+    // و سپس همان Stroke در B به‌صورت طبیعی پایان می‌یابد.
+    private var movementInProgress = false
+    private var releaseAfterMove = false
 
     private fun pointPath(x: Float, y: Float): Path =
         Path().apply {
@@ -279,6 +283,8 @@ class AccessService : AccessibilityService() {
     private fun startHold() {
         if (holdRequested) return
         holdRequested = true
+        movementInProgress = true
+        releaseAfterMove = false
         val generation = ++holdGeneration
 
         readScreen()
@@ -301,14 +307,18 @@ class AccessService : AccessibilityService() {
         android.util.Log.d("HoldGrip", "Hold started generation=$generation swipeMs=$swipeMs")
         val accepted = dispatchGesture(movingGesture, object : GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription?) {
-                if (generation != holdGeneration || !holdRequested) return
+                if (generation != holdGeneration) return
+                movementInProgress = false
 
                 try {
-                    // ادامه همان Stroke؛ لمس در B بدون ACTION_DOWN جدید حفظ می‌شود.
+                    // اگر کاربر هنگام حرکت دکمه را رها کرده، حرکت را قطع نکن:
+                    // همان Stroke را در B با مدت بسیار کوتاه و بدون ادامه ببند.
+                    val shouldReleaseNow = releaseAfterMove || !holdRequested
+                    releaseAfterMove = false
                     val continuedStroke = movingStroke.continueStroke(
                         pointPath(bx, by),
                         0L,
-                        60_000L,
+                        if (shouldReleaseNow) 1L else 60_000L,
                         false
                     )
                     val continuedGesture = GestureDescription.Builder()
@@ -317,9 +327,14 @@ class AccessService : AccessibilityService() {
 
                     val holdAccepted = dispatchGesture(continuedGesture, object : GestureResultCallback() {
                         override fun onCompleted(gestureDescription: GestureDescription?) {
-                            if (generation == holdGeneration && holdRequested) {
-                                android.util.Log.w("HoldGrip", "60s continuation ended while button remained down")
-                                setButtonDiagnosticState("error")
+                            if (generation == holdGeneration) {
+                                if (holdRequested) {
+                                    android.util.Log.w("HoldGrip", "60s continuation ended while button remained down")
+                                    setButtonDiagnosticState("error")
+                                } else {
+                                    android.util.Log.d("HoldGrip", "short tap completed and released at B")
+                                    setButtonDiagnosticState("released")
+                                }
                             }
                         }
 
@@ -331,15 +346,17 @@ class AccessService : AccessibilityService() {
                         }
                     }, null)
 
-                    if (!holdAccepted && generation == holdGeneration && holdRequested) {
-                        android.util.Log.e("HoldGrip", "continued hold dispatch rejected")
+                    if (!holdAccepted && generation == holdGeneration) {
+                        android.util.Log.e("HoldGrip", "continued stroke dispatch rejected")
                         setButtonDiagnosticState("dispatch_rejected")
                     } else if (holdAccepted && generation == holdGeneration && holdRequested) {
                         setButtonDiagnosticState("pressed")
                         android.util.Log.d("HoldGrip", "continuous hold active at B")
+                    } else if (holdAccepted && generation == holdGeneration) {
+                        android.util.Log.d("HoldGrip", "early release queued until movement completion")
                     }
                 } catch (e: Exception) {
-                    if (generation == holdGeneration && holdRequested) {
+                    if (generation == holdGeneration) {
                         android.util.Log.e("HoldGrip", "continuation exception", e)
                         setButtonDiagnosticState("continuation_exception")
                     }
@@ -347,15 +364,21 @@ class AccessService : AccessibilityService() {
             }
 
             override fun onCancelled(gestureDescription: GestureDescription?) {
-                if (generation == holdGeneration && holdRequested) {
-                    android.util.Log.w("HoldGrip", "A-to-B stroke cancelled unexpectedly")
-                    setButtonDiagnosticState("stroke_cancelled")
+                if (generation == holdGeneration) {
+                    movementInProgress = false
+                    releaseAfterMove = false
+                    if (holdRequested) {
+                        android.util.Log.w("HoldGrip", "A-to-B stroke cancelled unexpectedly")
+                        setButtonDiagnosticState("stroke_cancelled")
+                    }
                 }
             }
         }, null)
 
         if (!accepted) {
             holdRequested = false
+            movementInProgress = false
+            releaseAfterMove = false
             android.util.Log.e("HoldGrip", "A-to-B dispatch rejected")
             setButtonDiagnosticState("dispatch_rejected")
         }
@@ -364,11 +387,19 @@ class AccessService : AccessibilityService() {
     private fun releaseHold() {
         if (!holdRequested) return
         holdRequested = false
-        // نسل قبلی را باطل می‌کنیم تا callback دیررس نتواند وضعیت دکمه را عوض کند.
+
+        // رهاسازی در میانه حرکت نباید ژست را قطع کند؛ آن را تا رسیدن به B
+        // در صف نگه می‌داریم و onCompleted همان Stroke را در B می‌بندد.
+        if (movementInProgress) {
+            releaseAfterMove = true
+            setButtonDiagnosticState("release_requested")
+            android.util.Log.d("HoldGrip", "release queued until A-to-B movement completes")
+            return
+        }
+
+        // اگر لمس از قبل در B نگه داشته شده، ژست کوتاه فعلی آن را آزاد می‌کند.
         val generation = ++holdGeneration
         setButtonDiagnosticState("release_requested")
-
-        // dispatchGesture جدید، Stroke پیوسته فعال را متوقف می‌کند.
         val accepted = dispatchAtB(1L, object : GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription?) {
                 if (generation == holdGeneration) {
