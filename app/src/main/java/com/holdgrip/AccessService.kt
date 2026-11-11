@@ -128,6 +128,10 @@ class AccessService : AccessibilityService() {
             "release_requested" -> circleBg(0xFFF59E0B.toInt())
             "released" -> circleBg(0xFF22C55E.toInt())
             "error" -> circleBg(0xFFEF4444.toInt())
+            "stroke_cancelled" -> circleBg(0xFF8B5CF6.toInt())
+            "final_cancelled" -> circleBg(0xFFDC2626.toInt())
+            "dispatch_rejected" -> circleBg(0xFFEC4899.toInt())
+            "continuation_exception" -> circleBg(0xFFF97316.toInt())
             else -> GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
                 intArrayOf(0xFFF1F3F5.toInt(), 0xFF9CA3AF.toInt(), 0xFFDDE1E6.toInt())
@@ -347,7 +351,7 @@ class AccessService : AccessibilityService() {
                                         synchronized(gestureLock) {
                                             android.util.Log.e("HoldGrip", "Final UP cancelled: generation=$generation")
                                             if (generation == gestureGeneration) {
-                                                setButtonDiagnosticState("error")
+                                                setButtonDiagnosticState("final_cancelled")
                                                 resetLocked()
                                             }
                                         }
@@ -358,13 +362,14 @@ class AccessService : AccessibilityService() {
                             if (accepted) {
                                 android.util.Log.d("HoldGrip", "Final release dispatch accepted: generation=$generation")
                             } else {
-                                setButtonDiagnosticState("error")
+                                setButtonDiagnosticState("dispatch_rejected")
                                 android.util.Log.e("HoldGrip", "Final release dispatch rejected: generation=$generation")
                                 resetLocked()
                             }
                         }
                     } catch (error: Exception) {
-                        setButtonDiagnosticState("error")
+                        setButtonDiagnosticState("continuation_exception")
+                        Toast.makeText(this@AccessService, "خطا در ادامه ژست: ${error.javaClass.simpleName}", Toast.LENGTH_LONG).show()
                         android.util.Log.e(
                             "HoldGrip",
                             "Could not finish continuous stroke; Android rejected continuation",
@@ -379,7 +384,7 @@ class AccessService : AccessibilityService() {
                 synchronized(gestureLock) {
                     android.util.Log.e("HoldGrip", "Stroke cancelled: generation=$generation current=$gestureGeneration held=$held running=$running")
                     if (generation == gestureGeneration) {
-                        setButtonDiagnosticState("error")
+                        setButtonDiagnosticState("stroke_cancelled")
                         resetLocked()
                     }
                 }
@@ -390,7 +395,7 @@ class AccessService : AccessibilityService() {
         android.util.Log.d("HoldGrip", "dispatchGesture: accepted=$accepted generation=$generation willContinue=${stroke.willContinue()}")
         if (!accepted && generation == gestureGeneration) {
             android.util.Log.e("HoldGrip", "dispatchGesture rejected")
-            setButtonDiagnosticState("error")
+            setButtonDiagnosticState("dispatch_rejected")
             resetLocked()
         }
     }
