@@ -29,6 +29,8 @@ class MainActivity : Activity() {
     private lateinit var sizeSeek: SeekBar
     private lateinit var alphaSeek: SeekBar
     private lateinit var durationInput: EditText
+    private lateinit var curveSeek: SeekBar
+    private lateinit var curveLabel: TextView
 
     companion object {
         private const val REQUEST_EXPORT = 7101
@@ -55,6 +57,18 @@ class MainActivity : Activity() {
         if (::sizeSeek.isInitialized) sizeSeek.progress = (prefs.buttonSizeDp - 32).coerceIn(0, 56)
         if (::alphaSeek.isInitialized) alphaSeek.progress = ((prefs.buttonAlpha - 0.2f) * 100f).toInt().coerceIn(0, 80)
         if (::durationInput.isInitialized && !durationInput.hasFocus()) durationInput.setText(prefs.swipeMs.toFa())
+        if (::curveSeek.isInitialized) curveSeek.progress = (prefs.curve * 100f).toInt().coerceIn(-100, 100) + 100
+        updateCurveLabel()
+    }
+
+    private fun updateCurveLabel() {
+        if (!::curveLabel.isInitialized) return
+        val value = (prefs.curve * 100f).toInt()
+        curveLabel.text = when {
+            value == 0 -> "مسیر صاف"
+            value > 0 -> "خمیدگی سمت مثبت: +$value"
+            else -> "خمیدگی سمت مخالف: $value"
+        }
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
@@ -318,6 +332,39 @@ class MainActivity : Activity() {
         col.addView(alphaSeek)
 
         col.addView(sectionTitle("تنظیم حرکت"))
+        col.addView(TextView(this).apply {
+            text = "میزان و جهت قوس مسیر"
+            textSize = 14f
+            setTextColor(0xFF374151.toInt())
+            setPadding(0, dp(8), 0, dp(4))
+        })
+        curveLabel = TextView(this).apply {
+            textSize = 14f
+            setTextColor(0xFF4F46E5.toInt())
+            setPadding(0, dp(2), 0, dp(2))
+        }
+        col.addView(curveLabel)
+        curveSeek = SeekBar(this).apply {
+            max = 200
+            progress = (prefs.curve * 100f).toInt().coerceIn(-100, 100) + 100
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (!fromUser) return
+                    prefs.curve = ((progress - 100) / 100f).coerceIn(-1f, 1f)
+                    updateCurveLabel()
+                    profiles.saveCurrent()
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+            })
+        }
+        col.addView(curveSeek)
+        col.addView(TextView(this).apply {
+            text = "وسط نوار = مسیر صاف؛ هرچه از وسط دورتر شوی، قوس بیشتر می‌شود. با عبور از وسط، جهت قوس عوض می‌شود."
+            textSize = 12f
+            setTextColor(0xFF6B7280.toInt())
+            setPadding(0, dp(2), 0, dp(8))
+        })
         col.addView(TextView(this).apply {
             setText(R.string.swipe_duration)
             textSize = 14f
