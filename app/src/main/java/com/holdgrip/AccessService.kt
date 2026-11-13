@@ -290,7 +290,14 @@ class AccessService : AccessibilityService() {
         }
 
         override fun cont(prev: StrokeDescription, durationMs: Long, willContinue: Boolean): StrokeDescription {
-            val stationaryPath = Path().apply { moveTo(curX, curY) }
+            // Android needs a non-zero-length continuation path. A tiny out-and-back
+            // movement keeps the virtual finger effectively fixed at the endpoint,
+            // while preserving the exact same start/end point for the next segment.
+            val stationaryPath = Path().apply {
+                moveTo(curX, curY)
+                lineTo(curX + 0.5f, curY)
+                lineTo(curX, curY)
+            }
             return prev.continueStroke(stationaryPath, 0L, durationMs, willContinue)
         }
 
