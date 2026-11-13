@@ -599,4 +599,12 @@ class AccessService : AccessibilityService() {
     /** Read-only arbitration signal for MacroClick; Hold-Grip remains the priority owner. */
     fun isHoldGripBusy(): Boolean = holdRequested || movementInProgress
 
+
+    /** Stops scheduled macros and requests the normal Hold-Grip release path. */
+    fun emergencyStopAll() {
+        MacroRunner.stopActive()
+        finishHold()
+        android.util.Log.w("HoldGrip", "Emergency Stop All requested")
+    }
+
 }
