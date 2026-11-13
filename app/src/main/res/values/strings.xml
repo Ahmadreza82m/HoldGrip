@@ -25,4 +25,5 @@
     <string name="editor_hint">دایره‌ها را بکشید و جابه‌جا کنید</string>
     <string name="accessibility_desc">برای اجرای ژست نگه‌داشتن پیوسته روی سایر برنامه‌ها</string>
     <string name="macro_center">مدیریت ماکروها (MacroClick)</string>
+    <string name="emergency_stop_all">توقف اضطراری همه عملیات</string>
 </resources>
