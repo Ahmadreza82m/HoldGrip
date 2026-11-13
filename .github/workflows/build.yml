@@ -34,6 +34,11 @@ jobs:
       - name: Build debug APK
         run: gradle assembleDebug
 
+      - name: Locate generated debug signing key
+        run: |
+          echo "HOME=$HOME"
+          find "$HOME" -type f -name 'debug.keystore' -print 2>/dev/null || true
+
       - uses: actions/upload-artifact@v4
         with:
           name: HoldGrip-apk
