@@ -299,7 +299,11 @@ class AccessService : AccessibilityService() {
     }
 
     private fun startHold() {
-        chain.press(prefs.swipeMs.toLong())
+        if (chain.press(prefs.swipeMs.toLong())) {
+            setButtonDiagnosticState("pressed")
+        } else {
+            android.util.Log.w("HoldGrip", "Press ignored or gesture dispatch failed")
+        }
     }
 
     private fun releaseHold() {
@@ -423,6 +427,7 @@ class AccessService : AccessibilityService() {
             prefs.ay = ((aLp.topMargin + markerSize / 2f) / h).coerceIn(0f, 1f)
             prefs.bx = ((bLp.leftMargin + markerSize / 2f) / w).coerceIn(0f, 1f)
             prefs.by = ((bLp.topMargin + markerSize / 2f) / h).coerceIn(0f, 1f)
+            ProfileStore(this@AccessService, prefs).saveCurrent()
             prefs.btnX = ((btnLp.leftMargin + markerSize / 2f) / w).coerceIn(0f, 1f)
             prefs.btnY = ((btnLp.topMargin + markerSize / 2f) / h).coerceIn(0f, 1f)
             closeEditor()
