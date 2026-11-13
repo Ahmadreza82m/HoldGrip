@@ -17,6 +17,7 @@ import android.widget.Toast
 
 class MacroActivity : Activity() {
     private lateinit var repository: MacroRepository
+    private lateinit var recoveryLog: RecoveryLog
     private lateinit var root: LinearLayout
     private lateinit var status: TextView
     private var runner: MacroRunner? = null
@@ -24,6 +25,7 @@ class MacroActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         repository = MacroRepository(this)
+        recoveryLog = RecoveryLog(this)
         buildScreen()
         renderMacros()
     }
@@ -67,6 +69,7 @@ class MacroActivity : Activity() {
         status = text("آماده", 14f, 0xFF0F766E.toInt())
         root.addView(status)
         root.addView(actionButton("＋ ساخت ماکروی جدید", 0xFF2563EB.toInt()) { createMacroDialog() })
+        root.addView(actionButton("نمایش گزارش اجرا و خطاها", 0xFF475569.toInt()) { showLogs() })
         root.addView(actionButton("فعال‌سازی سرویس دسترسی", 0xFF64748B.toInt()) {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         })
@@ -105,7 +108,7 @@ class MacroActivity : Activity() {
     }
 
     private fun renderMacros() {
-        while (root.childCount > 5) root.removeViewAt(5)
+        while (root.childCount > 6) root.removeViewAt(6)
         val macros = repository.all()
         if (macros.isEmpty()) {
             root.addView(text("هنوز ماکرویی نساخته‌ای. از دکمه بالا شروع کن.", 14f, 0xFF64748B.toInt()))
@@ -211,6 +214,20 @@ class MacroActivity : Activity() {
         renderMacros()
     }
 
+    private fun showLogs() {
+        val entries = recoveryLog.recent()
+        val lines = if (entries.isEmpty()) arrayOf("هنوز گزارشی ثبت نشده است") else entries.map { it.display() }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("گزارش اجرا و خطاها")
+            .setItems(lines, null)
+            .setNeutralButton("پاک کردن گزارش") { _, _ ->
+                recoveryLog.clear()
+                Toast.makeText(this, "گزارش پاک شد", Toast.LENGTH_SHORT).show()
+            }
+            .setPositiveButton("بستن", null)
+            .show()
+    }
+
     private fun runMacro(macro: MacroDefinition) {
         if (macro.steps.isEmpty()) {
             Toast.makeText(this, "ابتدا حداقل یک مرحله اضافه کن", Toast.LENGTH_SHORT).show()
@@ -222,7 +239,10 @@ class MacroActivity : Activity() {
             return
         }
         if (runner?.isRunning == true) runner?.stop()
-        runner = MacroRunner(service) { message -> status.text = message }
+        runner = MacroRunner(service) { message ->
+            status.text = message
+            recoveryLog.add(message)
+        }
         if (!runner!!.start(macro)) status.text = "اجرای ماکرو شروع نشد"
     }
 }
