@@ -595,4 +595,8 @@ class AccessService : AccessibilityService() {
         hideEditor()
         if (prefs.showButton) showButton()
     }
+
+    /** Read-only arbitration signal for MacroClick; Hold-Grip remains the priority owner. */
+    fun isHoldGripBusy(): Boolean = holdRequested || movementInProgress
+
 }
