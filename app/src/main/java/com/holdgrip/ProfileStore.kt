@@ -11,7 +11,8 @@ data class GestureProfile(
     val ay: Float,
     val bx: Float,
     val by: Float,
-    val swipeMs: Int
+    val swipeMs: Int,
+    val curve: Float = 0f
 )
 
 /**
@@ -27,7 +28,8 @@ class ProfileStore(context: Context, private val prefs: Prefs) {
                 id = UUID.randomUUID().toString(),
                 name = "پروفایل اصلی",
                 ax = prefs.ax, ay = prefs.ay, bx = prefs.bx, by = prefs.by,
-                swipeMs = prefs.swipeMs
+                swipeMs = prefs.swipeMs,
+                curve = prefs.curve
             )
             writeProfiles(listOf(initial))
             sp.edit().putString(KEY_ACTIVE, initial.id).apply()
@@ -51,7 +53,8 @@ class ProfileStore(context: Context, private val prefs: Prefs) {
             ay = prefs.ay.coerceIn(0f, 1f),
             bx = prefs.bx.coerceIn(0f, 1f),
             by = prefs.by.coerceIn(0f, 1f),
-            swipeMs = prefs.swipeMs.coerceIn(50, 3000)
+            swipeMs = prefs.swipeMs.coerceIn(50, 3000),
+            curve = prefs.curve.coerceIn(-1f, 1f)
         )
         writeProfiles(readProfiles().map { if (it.id == current.id) updated else it })
     }
@@ -97,7 +100,7 @@ class ProfileStore(context: Context, private val prefs: Prefs) {
         readProfiles().forEach { p ->
             val encodedName = Base64.getUrlEncoder().withoutPadding()
                 .encodeToString(p.name.toByteArray(Charsets.UTF_8))
-            lines += listOf("P", p.id, encodedName, p.ax, p.ay, p.bx, p.by, p.swipeMs).joinToString("|")
+            lines += listOf("P", p.id, encodedName, p.ax, p.ay, p.bx, p.by, p.swipeMs, p.curve).joinToString("|")
         }
         lines += listOf(
             "S", prefs.btnX, prefs.btnY, prefs.buttonSizeDp, prefs.buttonAlpha,
@@ -119,7 +122,7 @@ class ProfileStore(context: Context, private val prefs: Prefs) {
                 when (p.firstOrNull()) {
                     "A" -> importedActiveId = p.getOrNull(1)
                     "P" -> {
-                        if (p.size != 8) return false
+                        if (p.size != 8 && p.size != 9) return false
                         val name = String(Base64.getUrlDecoder().decode(p[2]), Charsets.UTF_8)
                         imported += GestureProfile(
                             id = p[1], name = name,
@@ -127,7 +130,8 @@ class ProfileStore(context: Context, private val prefs: Prefs) {
                             ay = p[4].toFloat().coerceIn(0f, 1f),
                             bx = p[5].toFloat().coerceIn(0f, 1f),
                             by = p[6].toFloat().coerceIn(0f, 1f),
-                            swipeMs = p[7].toInt().coerceIn(50, 3000)
+                            swipeMs = p[7].toInt().coerceIn(50, 3000),
+                            curve = if (p.size == 9) p[8].toFloat().coerceIn(-1f, 1f) else 0f
                         )
                     }
                     "S" -> settings = p
@@ -163,6 +167,7 @@ class ProfileStore(context: Context, private val prefs: Prefs) {
         prefs.bx = profile.bx
         prefs.by = profile.by
         prefs.swipeMs = profile.swipeMs
+        prefs.curve = profile.curve
         sp.edit().putString(KEY_ACTIVE, profile.id).apply()
     }
 
@@ -170,7 +175,7 @@ class ProfileStore(context: Context, private val prefs: Prefs) {
         val raw = sp.getString(KEY_PROFILES, null) ?: return emptyList()
         return raw.lineSequence().mapNotNull { line ->
             val p = line.split("|")
-            if (p.size != 7) return@mapNotNull null
+            if (p.size != 7 && p.size != 8) return@mapNotNull null
             try {
                 GestureProfile(
                     id = p[0],
@@ -179,7 +184,8 @@ class ProfileStore(context: Context, private val prefs: Prefs) {
                     ay = p[3].toFloat().coerceIn(0f, 1f),
                     bx = p[4].toFloat().coerceIn(0f, 1f),
                     by = p[5].toFloat().coerceIn(0f, 1f),
-                    swipeMs = p[6].toInt().coerceIn(50, 3000)
+                    swipeMs = p[6].toInt().coerceIn(50, 3000),
+                    curve = if (p.size == 8) p[7].toFloat().coerceIn(-1f, 1f) else 0f
                 )
             } catch (_: Exception) { null }
         }.distinctBy { it.id }.toList()
@@ -189,7 +195,7 @@ class ProfileStore(context: Context, private val prefs: Prefs) {
         val raw = items.joinToString("\n") { p ->
             val name = Base64.getUrlEncoder().withoutPadding()
                 .encodeToString(p.name.toByteArray(Charsets.UTF_8))
-            listOf(p.id, name, p.ax, p.ay, p.bx, p.by, p.swipeMs).joinToString("|")
+            listOf(p.id, name, p.ax, p.ay, p.bx, p.by, p.swipeMs, p.curve).joinToString("|")
         }
         sp.edit().putString(KEY_PROFILES, raw).apply()
     }
