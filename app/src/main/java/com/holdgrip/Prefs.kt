@@ -42,6 +42,10 @@ class Prefs(context: Context) {
         get() = sp.getInt("swipeMs", 120)
         set(v) { sp.edit().putInt("swipeMs", v).apply() }
 
+    var curve: Float
+        get() = sp.getFloat("curve", 0f).coerceIn(-1f, 1f)
+        set(v) { sp.edit().putFloat("curve", v.coerceIn(-1f, 1f)).apply() }
+
     var showButton: Boolean
         get() = sp.getBoolean("showButton", true)
         set(v) { sp.edit().putBoolean("showButton", v).apply() }
