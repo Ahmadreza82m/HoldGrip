@@ -43,6 +43,8 @@ class AccessService : AccessibilityService() {
     private var curX = 0f
     private var curY = 0f
     private var activePointerId = -1
+    // Run one separate endpoint tap only after the held stroke has been released.
+    private var releaseTapPending = false
 
     private val boxSize: Int
         get() = (prefs.buttonSizeDp * resources.displayMetrics.density).toInt()
@@ -200,18 +202,23 @@ class AccessService : AccessibilityService() {
                         }
                     }
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    android.util.Log.d("HoldGrip", "Floating button released: action=${e.actionMasked}")
-                    releaseHold()
+                MotionEvent.ACTION_UP -> {
+                    android.util.Log.d("HoldGrip", "Floating button released: action=UP")
+                    releaseHold(tapAfterRelease = !dragging)
                     if (dragging) {
                         prefs.btnX = (bp.x + size / 2f) / screenW
                         prefs.btnY = (bp.y + size / 2f) / screenH
                     }
                     activePointerId = -1
                 }
+                MotionEvent.ACTION_CANCEL -> {
+                    android.util.Log.d("HoldGrip", "Floating button cancelled")
+                    releaseHold()
+                    activePointerId = -1
+                }
                 MotionEvent.ACTION_POINTER_UP -> {
                     if (e.getPointerId(e.actionIndex) == activePointerId) {
-                        releaseHold()
+                        releaseHold(tapAfterRelease = !dragging)
                         activePointerId = -1
                     }
                 }
@@ -306,9 +313,22 @@ class AccessService : AccessibilityService() {
         android.util.Log.d("HoldGrip", message)
         when {
             message.startsWith("release:") -> setButtonDiagnosticState("release_requested")
-            message == "final UP confirmed" -> setButtonDiagnosticState("released")
-            message.startsWith("cancelled by system") -> setButtonDiagnosticState("stroke_cancelled")
-            message.contains("FAILED") || message.contains("threw") -> setButtonDiagnosticState("error")
+            message == "final UP confirmed" -> {
+                setButtonDiagnosticState("released")
+                dispatchReleaseTapIfPending()
+            }
+            message.startsWith("cancelled by system") -> {
+                setButtonDiagnosticState("stroke_cancelled")
+                if (releaseTapPending) dispatchReleaseTapIfPending()
+            }
+            message.startsWith("callback LOST") -> {
+                releaseTapPending = false
+                setButtonDiagnosticState("error")
+            }
+            message.contains("FAILED") || message.contains("threw") -> {
+                releaseTapPending = false
+                setButtonDiagnosticState("error")
+            }
             message == "first dispatch rejected" -> setButtonDiagnosticState("dispatch_rejected")
         }
     }
@@ -321,11 +341,47 @@ class AccessService : AccessibilityService() {
         }
     }
 
-    private fun releaseHold() {
+    private fun releaseHold(tapAfterRelease: Boolean = false) {
+        // Queue the extra tap only for a normal finger-up, never for drag/cancel.
+        if (tapAfterRelease && chain.held) releaseTapPending = true
         chain.release()
     }
 
+    private fun dispatchReleaseTapIfPending() {
+        if (!releaseTapPending) return
+        releaseTapPending = false
+
+        // Wait until the continuous gesture's final UP callback has completed.
+        mainHandler.postDelayed({
+            val x = curX.coerceIn(0f, (screenW - 2).coerceAtLeast(1).toFloat())
+            val y = curY.coerceIn(0f, (screenH - 2).coerceAtLeast(1).toFloat())
+            val tapPath = Path().apply {
+                moveTo(x, y)
+                lineTo(x + 1f, y)
+            }
+            try {
+                val tap = GestureDescription.Builder()
+                    .addStroke(StrokeDescription(tapPath, 0L, 55L))
+                    .build()
+                val accepted = dispatchGesture(tap, object : GestureResultCallback() {
+                    override fun onCompleted(gestureDescription: GestureDescription?) {
+                        android.util.Log.d("HoldGrip", "endpoint tap completed")
+                    }
+                    override fun onCancelled(gestureDescription: GestureDescription?) {
+                        android.util.Log.w("HoldGrip", "endpoint tap cancelled")
+                    }
+                }, null)
+                android.util.Log.d("HoldGrip", "endpoint tap dispatch accepted=$accepted at ($x,$y)")
+                if (!accepted) setButtonDiagnosticState("error")
+            } catch (error: Exception) {
+                android.util.Log.e("HoldGrip", "endpoint tap failed", error)
+                setButtonDiagnosticState("error")
+            }
+        }, 20L)
+    }
+
     private fun finishHold() {
+        releaseTapPending = false
         chain.abort()
     }
 
