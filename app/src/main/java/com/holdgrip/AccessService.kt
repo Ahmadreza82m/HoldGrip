@@ -260,9 +260,24 @@ class AccessService : AccessibilityService() {
             val ay = prefs.ay * screenH
             curX = prefs.bx * screenW
             curY = prefs.by * screenH
+            val dx = curX - ax
+            val dy = curY - ay
+            val distance = kotlin.math.hypot(dx, dy)
+            val bend = prefs.curve.coerceIn(-1f, 1f) * distance * 0.45f
             val path = Path().apply {
                 moveTo(ax, ay)
-                lineTo(curX, curY)
+                if (distance > 1f) {
+                    val normalX = -dy / distance
+                    val normalY = dx / distance
+                    quadTo(
+                        (ax + curX) / 2f + normalX * bend,
+                        (ay + curY) / 2f + normalY * bend,
+                        curX,
+                        curY
+                    )
+                } else {
+                    lineTo(curX, curY)
+                }
             }
             return StrokeDescription(path, 0L, durationMs, true)
         }
@@ -318,14 +333,46 @@ class AccessService : AccessibilityService() {
     // صفحه تنظیم نقاط: سه دایره قابل درگ (شروع، پایان، دکمه)
     // ------------------------------------------------------------
 
-    private class LineView(c: Context, val a: View, val b: View, val half: Float) : View(c) {
+    private class LineView(
+        c: Context,
+        val a: View,
+        val b: View,
+        val half: Float,
+        private val curve: () -> Float
+    ) : View(c) {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
             strokeWidth = 6f
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
         }
 
         override fun onDraw(canvas: Canvas) {
-            canvas.drawLine(a.x + half, a.y + half, b.x + half, b.y + half, paint)
+            val ax = a.x + half
+            val ay = a.y + half
+            val bx = b.x + half
+            val by = b.y + half
+            val dx = bx - ax
+            val dy = by - ay
+            val distance = kotlin.math.hypot(dx, dy)
+            val bend = curve().coerceIn(-1f, 1f) * distance * 0.45f
+            val path = Path().apply {
+                moveTo(ax, ay)
+                if (distance > 1f) {
+                    val normalX = -dy / distance
+                    val normalY = dx / distance
+                    quadTo(
+                        (ax + bx) / 2f + normalX * bend,
+                        (ay + by) / 2f + normalY * bend,
+                        bx,
+                        by
+                    )
+                } else {
+                    lineTo(bx, by)
+                }
+            }
+            canvas.drawPath(path, paint)
         }
     }
 
@@ -408,7 +455,7 @@ class AccessService : AccessibilityService() {
         val startMarker = marker(getString(R.string.marker_a), 0xFF16A34A.toInt(), markerSize)
         val endMarker = marker(getString(R.string.marker_b), 0xFFDC2626.toInt(), markerSize)
         val buttonMarker = marker(getString(R.string.marker_btn), 0xFF7B8490.toInt(), markerSize)
-        val line = LineView(this, startMarker, endMarker, markerSize / 2f)
+        val line = LineView(this, startMarker, endMarker, markerSize / 2f) { prefs.curve }
         root.addView(line, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         root.addView(startMarker)
         root.addView(endMarker)
