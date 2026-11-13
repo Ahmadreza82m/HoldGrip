@@ -182,7 +182,7 @@ class ProfileStore(context: Context, private val prefs: Prefs) {
                     swipeMs = p[6].toInt().coerceIn(50, 3000)
                 )
             } catch (_: Exception) { null }
-        }.distinctBy { it.id }
+        }.distinctBy { it.id }.toList()
     }
 
     private fun writeProfiles(items: List<GestureProfile>) {
