@@ -262,7 +262,7 @@ class AccessService : AccessibilityService() {
             curY = prefs.by * screenH
             val dx = curX - ax
             val dy = curY - ay
-            val distance = kotlin.math.hypot(dx, dy)
+            val distance = kotlin.math.sqrt(dx * dx + dy * dy)
             val bend = prefs.curve.coerceIn(-1f, 1f) * distance * 0.45f
             val path = Path().apply {
                 moveTo(ax, ay)
@@ -355,7 +355,7 @@ class AccessService : AccessibilityService() {
             val by = b.y + half
             val dx = bx - ax
             val dy = by - ay
-            val distance = kotlin.math.hypot(dx, dy)
+            val distance = kotlin.math.sqrt(dx * dx + dy * dy)
             val bend = curve().coerceIn(-1f, 1f) * distance * 0.45f
             val path = Path().apply {
                 moveTo(ax, ay)
