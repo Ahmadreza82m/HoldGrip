@@ -102,6 +102,10 @@ class MainActivity : Activity() {
             }
         })
 
+        col.addView(button(R.string.macro_center, 0xFF2563EB.toInt()) {
+            startActivity(Intent(this, MacroActivity::class.java))
+        })
+
         toggle = button(R.string.hide_button, 0xFF6B7280.toInt()) {
             prefs.showButton = !prefs.showButton
             if (prefs.showButton) {
