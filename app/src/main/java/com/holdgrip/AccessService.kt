@@ -293,9 +293,10 @@ class AccessService : AccessibilityService() {
             // Android needs a non-zero-length continuation path. A tiny out-and-back
             // movement keeps the virtual finger effectively fixed at the endpoint,
             // while preserving the exact same start/end point for the next segment.
+            val nudgeX = if (curX + 0.5f < screenW) 0.5f else -0.5f
             val stationaryPath = Path().apply {
                 moveTo(curX, curY)
-                lineTo(curX + 0.5f, curY)
+                lineTo(curX + nudgeX, curY)
                 lineTo(curX, curY)
             }
             return prev.continueStroke(stationaryPath, 0L, durationMs, willContinue)
