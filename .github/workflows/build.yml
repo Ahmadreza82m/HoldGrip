@@ -25,7 +25,7 @@ jobs:
       - name: Restore stable debug signing key
         uses: actions/cache@v4
         with:
-          path: ~/.android/debug.keystore
+          path: ~/.config/.android/debug.keystore
           key: holdgrip-debug-keystore-v1
 
       - name: Run JVM unit tests
