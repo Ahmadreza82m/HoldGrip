@@ -100,6 +100,10 @@ class MacroRunner(
     private val service: AccessService,
     private val onState: (String) -> Unit
 ) {
+    companion object {
+        @Volatile private var activeRunner: MacroRunner? = null
+        fun stopActive() { activeRunner?.stop() }
+    }
     private val handler = Handler(Looper.getMainLooper())
     private var macro: MacroDefinition? = null
     private var stepIndex = 0
@@ -117,6 +121,7 @@ class MacroRunner(
         pass = 0
         busyWaits = 0
         isRunning = true
+        activeRunner = this
         onState("در حال اجرا: ${definition.name}")
         scheduleNext(generation, 0L)
         return true
@@ -195,6 +200,7 @@ class MacroRunner(
         generation++
         handler.removeCallbacksAndMessages(null)
         isRunning = false
+        if (activeRunner === this) activeRunner = null
         macro = null
         onState(message)
     }
