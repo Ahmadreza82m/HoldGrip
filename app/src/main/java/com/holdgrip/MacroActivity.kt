@@ -29,7 +29,7 @@ class MacroActivity : Activity() {
     }
 
     override fun onDestroy() {
-        // Leaving this editor does not silently cancel a macro already in progress.
+        runner?.stop()
         super.onDestroy()
     }
 
@@ -105,7 +105,7 @@ class MacroActivity : Activity() {
     }
 
     private fun renderMacros() {
-        while (root.childCount > 4) root.removeViewAt(4)
+        while (root.childCount > 5) root.removeViewAt(5)
         val macros = repository.all()
         if (macros.isEmpty()) {
             root.addView(text("هنوز ماکرویی نساخته‌ای. از دکمه بالا شروع کن.", 14f, 0xFF64748B.toInt()))
