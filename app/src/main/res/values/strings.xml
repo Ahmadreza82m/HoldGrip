@@ -26,4 +26,5 @@
     <string name="accessibility_desc">برای اجرای ژست نگه‌داشتن پیوسته روی سایر برنامه‌ها</string>
     <string name="macro_center">مدیریت ماکروها (MacroClick)</string>
     <string name="emergency_stop_all">توقف اضطراری همه عملیات</string>
+    <string name="stop_requested_detail">درخواست توقف ثبت شد؛ لمس در حال اجرا ممکن است تا پایان زمان خودش ادامه پیدا کند.</string>
 </resources>
