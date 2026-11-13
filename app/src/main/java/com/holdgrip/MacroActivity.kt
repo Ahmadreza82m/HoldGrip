@@ -65,7 +65,7 @@ class MacroActivity : Activity() {
             setPadding(dp(18), dp(24), dp(18), dp(20))
         }
         root.addView(text("MacroClick | ساخت و اجرای ماکرو", 22f))
-        root.addView(text("ماکرو یعنی چند لمس و مکث پشت‌سرهم که یک‌بار ذخیره می‌کنی و دوباره اجرا می‌کنی.", 14f, 0xFF475569.toInt()))
+        root.addView(text("ماکرو یعنی چند لمس و مکث پشت‌سرهم که یک‌بار ذخیره می‌کنی و دوباره اجرا می‌کنی. توقف، مراحل بعدی را قطع می‌کند؛ لمس در حال اجرا ممکن است تا پایان زمان خودش ادامه پیدا کند.", 14f, 0xFF475569.toInt()))
         status = text("آماده", 14f, 0xFF0F766E.toInt())
         root.addView(status)
         root.addView(actionButton("＋ ساخت ماکروی جدید", 0xFF2563EB.toInt()) { createMacroDialog() })
