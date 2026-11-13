@@ -605,6 +605,7 @@ class AccessService : AccessibilityService() {
         MacroRunner.stopActive()
         finishHold()
         android.util.Log.w("HoldGrip", "Emergency Stop All requested")
+        RecoveryLog(this).add("توقف اضطراری همه عملیات درخواست شد")
     }
 
 }
