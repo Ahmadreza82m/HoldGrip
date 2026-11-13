@@ -109,7 +109,7 @@ class MainActivity : Activity() {
         col.addView(button(R.string.emergency_stop_all, 0xFFB91C1C.toInt()) {
             MacroRunner.stopActive()
             AccessService.instance?.emergencyStopAll()
-            Toast.makeText(this, R.string.emergency_stop_all, Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, R.string.stop_requested_detail, Toast.LENGTH_LONG).show()
         })
 
         toggle = button(R.string.hide_button, 0xFF6B7280.toInt()) {
