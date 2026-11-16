@@ -29,6 +29,7 @@ class FloatingPanelService : Service() {
         showPanel()
     }
 
+    @Suppress("DEPRECATION")
     private fun showPanel() {
         if (panel != null) return
         val container = LinearLayout(this).apply {
@@ -66,7 +67,7 @@ class FloatingPanelService : Service() {
         container.addView(close)
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
+        else WindowManager.LayoutParams.TYPE_PHONE
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -111,6 +112,7 @@ class FloatingPanelService : Service() {
         }
     }
 
+    @Suppress("DEPRECATION")
     private fun buildNotification(): Notification {
         val openIntent = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
@@ -125,7 +127,6 @@ class FloatingPanelService : Service() {
                 .setOngoing(true)
                 .build()
         } else {
-            @Suppress("DEPRECATION")
             Notification.Builder(this)
                 .setContentTitle("HoldGrip practice panel")
                 .setContentText("Floating panel is active")
@@ -136,10 +137,10 @@ class FloatingPanelService : Service() {
         }
     }
 
+    @Suppress("DEPRECATION")
     override fun onDestroy() {
         panel?.let { runCatching { windowManager.removeView(it) } }
         panel = null
-        @Suppress("DEPRECATION")
         stopForeground(true)
         super.onDestroy()
     }
