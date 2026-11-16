@@ -116,7 +116,8 @@ class FloatingPanelService : Service() {
     override fun onDestroy() {
         panel?.let { runCatching { windowManager.removeView(it) } }
         panel = null
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        @Suppress("DEPRECATION")
+        stopForeground(true)
         super.onDestroy()
     }
 
