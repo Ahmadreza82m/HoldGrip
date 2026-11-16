@@ -1,0 +1,22 @@
+name: Android build
+on:
+  push:
+    paths: ["aim-trainer/**"]
+  pull_request:
+    paths: ["aim-trainer/**"]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+      - name: Assemble debug APK
+        working-directory: aim-trainer
+        run: gradle :app:assembleDebug
