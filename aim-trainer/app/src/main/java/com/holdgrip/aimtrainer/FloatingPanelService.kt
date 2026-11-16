@@ -10,6 +10,7 @@ import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
@@ -73,9 +74,31 @@ class FloatingPanelService : Service() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.END
-            x = 18
+            gravity = Gravity.TOP or Gravity.START
+            x = 12
             y = 180
+        }
+        var downRawX = 0f
+        var downRawY = 0f
+        var startX = 0
+        var startY = 0
+        header.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    startX = params.x
+                    startY = params.y
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    params.x = startX + (event.rawX - downRawX).toInt()
+                    params.y = startY + (event.rawY - downRawY).toInt()
+                    windowManager.updateViewLayout(container, params)
+                    true
+                }
+                else -> true
+            }
         }
         windowManager.addView(container, params)
         panel = container
